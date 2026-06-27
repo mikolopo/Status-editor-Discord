@@ -105,7 +105,9 @@ module.exports = class Statuseditor {
         flags: 1
       };
 
-      activity.application_id = this.settings.applicationId || "0";
+      if (this.settings.applicationId) {
+        activity.application_id = this.settings.applicationId;
+      }
 
       if (activity.type === 1) {
         activity.url = this.settings.streamUrl || "https://www.twitch.tv/discord";
@@ -890,6 +892,10 @@ module.exports = class Statuseditor {
       this.settings.applicationId = appIdInput.value;
     };
     appIdGroup.appendChild(appIdInput);
+    const appIdDesc = document.createElement("div");
+    appIdDesc.classList.add("sc-field-desc");
+    appIdDesc.textContent = "If left empty, the custom activity will only be visible to you locally.";
+    appIdGroup.appendChild(appIdDesc);
     activitySection.appendChild(appIdGroup);
 
     activitySection.appendChild(actFieldsRow);
