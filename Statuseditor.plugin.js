@@ -88,7 +88,8 @@ module.exports = class Statuseditor {
 
     BdApi.Patcher.after("Statuseditor", LocalActivityStore, "getActivities", (_, __, ret) => {
       const act = this.buildActivity();
-      const filtered = (ret || []).filter(a => a.name !== this.settings.activityName && a.name !== "Streaming");
+      const nameToFilter = act ? act.name : this.settings.activityName;
+      const filtered = (ret || []).filter(a => a.name !== nameToFilter && a.name !== "Streaming" && a.name !== "\u2800");
       if (!act) return filtered;
       return [...filtered, act];
     });
@@ -96,8 +97,9 @@ module.exports = class Statuseditor {
     if (LocalActivityStore.getAllActivities && userId) {
       BdApi.Patcher.after("Statuseditor", LocalActivityStore, "getAllActivities", (_, __, ret) => {
         const act = this.buildActivity();
+        const nameToFilter = act ? act.name : this.settings.activityName;
         const userActivities = ret[userId] || [];
-        const filtered = userActivities.filter(a => a.name !== this.settings.activityName && a.name !== "Streaming");
+        const filtered = userActivities.filter(a => a.name !== nameToFilter && a.name !== "Streaming" && a.name !== "\u2800");
         return {
           ...ret,
           [userId]: act ? [...filtered, act] : filtered
@@ -105,7 +107,12 @@ module.exports = class Statuseditor {
       });
     }
 
-    FluxDispatcher?.dispatch({ type: "LOCAL_ACTIVITY_UPDATE", activity: null });
+    const act = this.buildActivity();
+    FluxDispatcher?.dispatch({
+      type: "LOCAL_ACTIVITY_UPDATE",
+      socketId: "Statuseditor",
+      activity: act
+    });
   }
 
   buildActivity() {
@@ -117,7 +124,7 @@ module.exports = class Statuseditor {
       }
 
       const activity = {
-        name: this.settings.activityName || "Streaming",
+        name: (this.settings.activityName && this.settings.activityName.trim()) ? this.settings.activityName : "\u2800",
         type: isStreaming ? 1 : (parseInt(this.settings.activityType) === 1 ? 0 : parseInt(this.settings.activityType)),
         flags: 1
       };
@@ -330,8 +337,13 @@ module.exports = class Statuseditor {
     const interval = Math.max(1000, this.settings.cycleInterval || 5000);
 
     const update = () => {
+      const act = this.buildActivity();
       const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
-      FluxDispatcher?.dispatch({ type: "LOCAL_ACTIVITY_UPDATE", activity: null });
+      FluxDispatcher?.dispatch({
+        type: "LOCAL_ACTIVITY_UPDATE",
+        socketId: "Statuseditor",
+        activity: act
+      });
     };
 
     update();
@@ -367,7 +379,12 @@ module.exports = class Statuseditor {
       this.startCycle();
     } else {
       const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
-      FluxDispatcher?.dispatch({ type: "LOCAL_ACTIVITY_UPDATE", activity: null });
+      const act = this.buildActivity();
+      FluxDispatcher?.dispatch({
+        type: "LOCAL_ACTIVITY_UPDATE",
+        socketId: "Statuseditor",
+        activity: act
+      });
     }
   }
 
