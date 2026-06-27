@@ -1,6 +1,6 @@
 /**
  * @name Statuseditor
- * @version 1.0.0
+ * @version 2.0.0
  * @description Discord status and custom activity editor.
  * @author Mikolopo
  * @website https://github.com/mikolopo/Status-editor-Discord
