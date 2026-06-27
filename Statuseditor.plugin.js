@@ -1178,7 +1178,7 @@ module.exports = class Statuseditor {
 
     const wAppGroup = document.createElement("div");
     wAppGroup.classList.add("sc-form-group");
-    wAppGroup.innerHTML = \`<div class="sc-label-container"><span class="sc-label">Application ID</span></div>\`;
+    wAppGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Application ID</span></div>`;
     const wAppInput = document.createElement("input");
     wAppInput.type = "text";
     wAppInput.classList.add("sc-input");
@@ -1190,7 +1190,7 @@ module.exports = class Statuseditor {
 
     const wTokenGroup = document.createElement("div");
     wTokenGroup.classList.add("sc-form-group");
-    wTokenGroup.innerHTML = \`<div class="sc-label-container"><span class="sc-label">Bot Token</span></div>\`;
+    wTokenGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Bot Token</span></div>`;
     const wTokenInput = document.createElement("input");
     wTokenInput.type = "password";
     wTokenInput.classList.add("sc-input");
@@ -1205,12 +1205,12 @@ module.exports = class Statuseditor {
     const wJsonGroup = document.createElement("div");
     wJsonGroup.classList.add("sc-form-group");
     wJsonGroup.style.marginTop = "16px";
-    wJsonGroup.innerHTML = \`
+    wJsonGroup.innerHTML = `
       <div class="sc-label-container">
         <span class="sc-label">Widget Sample Data JSON</span>
       </div>
       <div class="sc-field-desc" style="margin-bottom: 8px;">Paste the JSON generated from the Developer Portal "Sample Data" tab here.</div>
-    \`;
+    `;
     const wJsonInput = document.createElement("textarea");
     wJsonInput.classList.add("sc-textarea");
     wJsonInput.value = this.settings.widgetJson || "";
