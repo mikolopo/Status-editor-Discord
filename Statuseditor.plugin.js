@@ -25,7 +25,10 @@ module.exports = class Statuseditor {
       cycleEnabled: false,
       cycleInterval: 5000,
       applicationId: "",
-      enableCustomActivity: true
+      enableCustomActivity: true,
+      widgetAppId: "",
+      widgetBotToken: "",
+      widgetJson: ""
     };
 
     const saved = BdApi.Data.load("Statuseditor", "settings");
@@ -385,6 +388,54 @@ module.exports = class Statuseditor {
         socketId: "Statuseditor",
         activity: act
       });
+    }
+  }
+
+  async pushWidget() {
+    if (!this.settings.widgetAppId || !this.settings.widgetBotToken || !this.settings.widgetJson) {
+      BdApi.UI.showToast("Widget Setup Incomplete: Missing App ID, Token, or JSON", { type: "error" });
+      return;
+    }
+
+    try {
+      const UserStore = BdApi.Webpack.getStore("UserStore");
+      const userId = UserStore?.getCurrentUser()?.id;
+
+      if (!userId) {
+        BdApi.UI.showToast("Could not get current User ID", { type: "error" });
+        return;
+      }
+
+      let parsedJson;
+      try {
+        parsedJson = JSON.parse(this.settings.widgetJson);
+      } catch (e) {
+        BdApi.UI.showToast("Invalid Widget JSON format", { type: "error" });
+        return;
+      }
+
+      const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
+      
+      const response = await window.fetch(url, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bot ${this.settings.widgetBotToken}`,
+          "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)"
+        },
+        body: JSON.stringify(parsedJson)
+      });
+
+      if (response.ok) {
+        BdApi.UI.showToast("Widget pushed successfully!", { type: "success" });
+      } else {
+        const text = await response.text();
+        console.error("Statuseditor Widget Push Error:", text);
+        BdApi.UI.showToast(`Failed to push widget: ${response.status}`, { type: "error" });
+      }
+    } catch (e) {
+      console.error("Statuseditor Widget Error:", e);
+      BdApi.UI.showToast("Error pushing widget. Check console.", { type: "error" });
     }
   }
 
@@ -1111,6 +1162,77 @@ module.exports = class Statuseditor {
 
     panel.appendChild(rotationSection);
 
+    const widgetSection = document.createElement("div");
+    widgetSection.classList.add("sc-section");
+    widgetSection.innerHTML = `
+      <div class="sc-section-title">Discord Widgets v2 (Advanced)</div>
+      <div class="sc-tutorial-box">
+        <div class="sc-tutorial-title">Profile Widget Generator</div>
+        This pushes your custom widget JSON to Discord's official profile widget system.
+        You must create an Application in the Developer Portal, authorize it for your account with the Social SDK, and provide the App ID and Bot Token below.
+      </div>
+    `;
+
+    const widgetCredsRow = document.createElement("div");
+    widgetCredsRow.classList.add("sc-row");
+
+    const wAppGroup = document.createElement("div");
+    wAppGroup.classList.add("sc-form-group");
+    wAppGroup.innerHTML = \`<div class="sc-label-container"><span class="sc-label">Application ID</span></div>\`;
+    const wAppInput = document.createElement("input");
+    wAppInput.type = "text";
+    wAppInput.classList.add("sc-input");
+    wAppInput.value = this.settings.widgetAppId || "";
+    wAppInput.placeholder = "e.g. 1509844130082062396";
+    wAppInput.oninput = () => { this.settings.widgetAppId = wAppInput.value; };
+    wAppGroup.appendChild(wAppInput);
+    widgetCredsRow.appendChild(wAppGroup);
+
+    const wTokenGroup = document.createElement("div");
+    wTokenGroup.classList.add("sc-form-group");
+    wTokenGroup.innerHTML = \`<div class="sc-label-container"><span class="sc-label">Bot Token</span></div>\`;
+    const wTokenInput = document.createElement("input");
+    wTokenInput.type = "password";
+    wTokenInput.classList.add("sc-input");
+    wTokenInput.value = this.settings.widgetBotToken || "";
+    wTokenInput.placeholder = "Bot token for authorization";
+    wTokenInput.oninput = () => { this.settings.widgetBotToken = wTokenInput.value; };
+    wTokenGroup.appendChild(wTokenInput);
+    widgetCredsRow.appendChild(wTokenGroup);
+
+    widgetSection.appendChild(widgetCredsRow);
+
+    const wJsonGroup = document.createElement("div");
+    wJsonGroup.classList.add("sc-form-group");
+    wJsonGroup.style.marginTop = "16px";
+    wJsonGroup.innerHTML = \`
+      <div class="sc-label-container">
+        <span class="sc-label">Widget Sample Data JSON</span>
+      </div>
+      <div class="sc-field-desc" style="margin-bottom: 8px;">Paste the JSON generated from the Developer Portal "Sample Data" tab here.</div>
+    \`;
+    const wJsonInput = document.createElement("textarea");
+    wJsonInput.classList.add("sc-textarea");
+    wJsonInput.value = this.settings.widgetJson || "";
+    wJsonInput.placeholder = '{"username": "My Name", "data": {...}}';
+    wJsonInput.style.fontFamily = "monospace";
+    wJsonInput.style.minHeight = "120px";
+    wJsonInput.oninput = () => { this.settings.widgetJson = wJsonInput.value; };
+    wJsonGroup.appendChild(wJsonInput);
+    widgetSection.appendChild(wJsonGroup);
+
+    const wPushBtn = document.createElement("button");
+    wPushBtn.classList.add("sc-btn", "sc-btn-primary");
+    wPushBtn.style.marginTop = "12px";
+    wPushBtn.style.width = "100%";
+    wPushBtn.textContent = "Push Widget to Profile";
+    wPushBtn.onclick = () => {
+      this.pushWidget();
+    };
+    widgetSection.appendChild(wPushBtn);
+
+    panel.appendChild(widgetSection);
+
     const actions = document.createElement("div");
     actions.classList.add("sc-actions");
 
@@ -1136,6 +1258,9 @@ module.exports = class Statuseditor {
       cycleCheck.checked = this.settings.cycleEnabled;
       intervalInput.value = this.settings.cycleInterval.toString();
       appIdInput.value = this.settings.applicationId || "";
+      wAppInput.value = this.settings.widgetAppId || "";
+      wTokenInput.value = this.settings.widgetBotToken || "";
+      wJsonInput.value = this.settings.widgetJson || "";
 
       renderSteps();
 
