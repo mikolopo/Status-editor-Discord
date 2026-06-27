@@ -658,21 +658,6 @@ module.exports = class Statuseditor {
 
     panel.appendChild(header);
 
-    const tutorialBox = document.createElement("div");
-    tutorialBox.classList.add("sc-tutorial-box");
-    tutorialBox.innerHTML = `
-      <div class="sc-tutorial-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></svg>
-        Status Settings Guide
-      </div>
-      <div>
-        • <strong>Purple Streaming</strong>: Adds streaming activity to profile. Requires stream URL (Twitch/YouTube).<br>
-        • <strong>Custom Activity</strong>: For Playing/Watching/Listening, check 'Enable Custom Presence Activity' and set details/state.<br>
-        • <strong>Text Cycling</strong>: Add lines to details/state rotation boxes. Check 'Enable Text Cycling' and click Apply to start.
-      </div>
-    `;
-    panel.appendChild(tutorialBox);
-
     const presetSection = document.createElement("div");
     presetSection.classList.add("sc-section");
     presetSection.innerHTML = `<div class="sc-section-title">Presence Status Preset</div>`;
@@ -786,15 +771,11 @@ module.exports = class Statuseditor {
     nameInput.type = "text";
     nameInput.classList.add("sc-input");
     nameInput.value = this.settings.activityName;
-    nameInput.placeholder = "e.g. Streaming, Visual Studio Code";
+    nameInput.placeholder = "";
     nameInput.oninput = () => {
       this.settings.activityName = nameInput.value;
     };
     nameGroup.appendChild(nameInput);
-    const nameDesc = document.createElement("div");
-    nameDesc.classList.add("sc-field-desc");
-    nameDesc.textContent = "The main heading of your activity status.";
-    nameGroup.appendChild(nameDesc);
     actRow.appendChild(nameGroup);
 
     const typeGroup = document.createElement("div");
@@ -831,10 +812,6 @@ module.exports = class Statuseditor {
       }
     };
     typeGroup.appendChild(activityTypeSelect);
-    const typeDesc = document.createElement("div");
-    typeDesc.classList.add("sc-field-desc");
-    typeDesc.textContent = "Defines the activity category action prefix.";
-    typeGroup.appendChild(typeDesc);
     actRow.appendChild(typeGroup);
 
     activitySection.appendChild(actRow);
@@ -854,15 +831,11 @@ module.exports = class Statuseditor {
     streamInput.type = "text";
     streamInput.classList.add("sc-input");
     streamInput.value = this.settings.streamUrl;
-    streamInput.placeholder = "https://www.twitch.tv/yourchannel";
+    streamInput.placeholder = "";
     streamInput.oninput = () => {
       this.settings.streamUrl = streamInput.value;
     };
     streamUrlGroup.appendChild(streamInput);
-    const streamDesc = document.createElement("div");
-    streamDesc.classList.add("sc-field-desc");
-    streamDesc.textContent = "Twitch/YouTube links only.";
-    streamUrlGroup.appendChild(streamDesc);
     activitySection.appendChild(streamUrlGroup);
 
     const actFieldsRow = document.createElement("div");
@@ -875,15 +848,11 @@ module.exports = class Statuseditor {
     detailsInput.type = "text";
     detailsInput.classList.add("sc-input");
     detailsInput.value = this.settings.details;
-    detailsInput.placeholder = "e.g. Writing code...";
+    detailsInput.placeholder = "";
     detailsInput.oninput = () => {
       this.settings.details = detailsInput.value;
     };
     detailsGroup.appendChild(detailsInput);
-    const detailsDesc = document.createElement("div");
-    detailsDesc.classList.add("sc-field-desc");
-    detailsDesc.textContent = "First description line (used when cycling is disabled).";
-    detailsGroup.appendChild(detailsDesc);
     actFieldsRow.appendChild(detailsGroup);
 
     const stateGroup = document.createElement("div");
@@ -893,15 +862,11 @@ module.exports = class Statuseditor {
     stateInput.type = "text";
     stateInput.classList.add("sc-input");
     stateInput.value = this.settings.state;
-    stateInput.placeholder = "e.g. In the zone";
+    stateInput.placeholder = "";
     stateInput.oninput = () => {
       this.settings.state = stateInput.value;
     };
     stateGroup.appendChild(stateInput);
-    const stateDesc = document.createElement("div");
-    stateDesc.classList.add("sc-field-desc");
-    stateDesc.textContent = "Second description line (used when cycling is disabled).";
-    stateGroup.appendChild(stateDesc);
     actFieldsRow.appendChild(stateGroup);
 
     const appIdGroup = document.createElement("div");
@@ -916,16 +881,11 @@ module.exports = class Statuseditor {
     appIdInput.type = "text";
     appIdInput.classList.add("sc-input");
     appIdInput.value = this.settings.applicationId || "";
-    appIdInput.placeholder = "e.g. 123456789012345678";
+    appIdInput.placeholder = "";
     appIdInput.oninput = () => {
       this.settings.applicationId = appIdInput.value;
     };
     appIdGroup.appendChild(appIdInput);
-    const appIdDesc = document.createElement("div");
-    appIdDesc.classList.add("sc-field-desc");
-    appIdDesc.textContent = "Developer App Client ID. Leave empty for default custom presence.";
-    appIdGroup.appendChild(appIdInput);
-    appIdGroup.appendChild(appIdDesc);
     activitySection.appendChild(appIdGroup);
 
     activitySection.appendChild(actFieldsRow);
@@ -969,15 +929,11 @@ module.exports = class Statuseditor {
     const detailsRotArea = document.createElement("textarea");
     detailsRotArea.classList.add("sc-textarea");
     detailsRotArea.value = (this.settings.detailsRotation || []).join("\n");
-    detailsRotArea.placeholder = "Vibing...\nCoding...\nChilling...";
+    detailsRotArea.placeholder = "";
     detailsRotArea.oninput = () => {
       this.settings.detailsRotation = detailsRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
     };
     rotDetailsGroup.appendChild(detailsRotArea);
-    const rotDetailsDesc = document.createElement("div");
-    rotDetailsDesc.classList.add("sc-field-desc");
-    rotDetailsDesc.textContent = "Enter entries line-by-line.";
-    rotDetailsGroup.appendChild(rotDetailsDesc);
     rotRow.appendChild(rotDetailsGroup);
 
     const rotStateGroup = document.createElement("div");
@@ -986,15 +942,11 @@ module.exports = class Statuseditor {
     const stateRotArea = document.createElement("textarea");
     stateRotArea.classList.add("sc-textarea");
     stateRotArea.value = (this.settings.stateRotation || []).join("\n");
-    stateRotArea.placeholder = "In the zone\nDo not disturb\nBusy coding";
+    stateRotArea.placeholder = "";
     stateRotArea.oninput = () => {
       this.settings.stateRotation = stateRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
     };
     rotStateGroup.appendChild(stateRotArea);
-    const rotStateDesc = document.createElement("div");
-    rotStateDesc.classList.add("sc-field-desc");
-    rotStateDesc.textContent = "Enter entries line-by-line.";
-    rotStateGroup.appendChild(rotStateDesc);
     rotRow.appendChild(rotStateGroup);
 
     rotationSection.appendChild(rotRow);
@@ -1014,10 +966,6 @@ module.exports = class Statuseditor {
       this.settings.cycleInterval = Math.max(1000, parseInt(intervalInput.value) || 5000);
     };
     intervalGroup.appendChild(intervalInput);
-    const intervalDesc = document.createElement("div");
-    intervalDesc.classList.add("sc-field-desc");
-    intervalDesc.textContent = "Time in milliseconds between cycles (Recommended: 5000ms+).";
-    intervalGroup.appendChild(intervalDesc);
     rotationSection.appendChild(intervalGroup);
 
     panel.appendChild(rotationSection);
