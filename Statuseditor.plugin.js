@@ -27,10 +27,11 @@ module.exports = class Statuseditor {
       applicationId: "",
       enableCustomActivity: true,
       widgetAppId: "",
-      widgetBotToken: "",
       widgetJson: "",
       widgetAutoSync: false,
-      widgetSyncInterval: 15
+      widgetSyncInterval: 15,
+      birthDate: "2000-01-01T12:00",
+      totalCallMinutes: 0
     };
 
     const saved = BdApi.Data.load("Statuseditor", "settings");
@@ -53,6 +54,7 @@ module.exports = class Statuseditor {
     this.cycleTimer = null;
     this.cycleIndex = 0;
     this.widgetSyncTimer = null;
+    this.callTrackingTimer = null;
   }
 
   saveSettings() {
@@ -76,12 +78,15 @@ module.exports = class Statuseditor {
       this.startWidgetSync();
     }
 
+    this.startCallTracking();
+
     BdApi.UI.showToast("Status Editor: Activated", { type: "success" });
   }
 
   stop() {
     this.stopCycle();
     this.stopWidgetSync();
+    this.stopCallTracking();
     BdApi.Patcher.unpatchAll("Statuseditor");
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
   }
@@ -424,6 +429,38 @@ module.exports = class Statuseditor {
     }
   }
 
+  startCallTracking() {
+    this.stopCallTracking();
+    this.callTrackingTimer = setInterval(() => {
+      try {
+        const UserStore = BdApi.Webpack.getStore("UserStore");
+        const VoiceStateStore = BdApi.Webpack.getStore("VoiceStateStore");
+        const userId = UserStore?.getCurrentUser()?.id;
+        if (userId && VoiceStateStore) {
+          const state = VoiceStateStore.getVoiceStateForUser(userId);
+          if (state && state.channelId) {
+            this.settings.totalCallMinutes = (this.settings.totalCallMinutes || 0) + 1;
+            this.saveSettings();
+            
+            const callMinDisplay = document.getElementById("sc-call-min-display");
+            if (callMinDisplay) {
+              callMinDisplay.textContent = this.settings.totalCallMinutes + " minutes tracked";
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Statuseditor: Error tracking call minutes", e);
+      }
+    }, 60000);
+  }
+
+  stopCallTracking() {
+    if (this.callTrackingTimer) {
+      clearInterval(this.callTrackingTimer);
+      this.callTrackingTimer = null;
+    }
+  }
+
   async pushWidget(silent = false) {
     if (!this.settings.widgetAppId || !this.settings.widgetBotToken || !this.settings.widgetJson) {
       BdApi.UI.showToast("Widget Setup Incomplete: Missing App ID, Token, or JSON", { type: "error" });
@@ -439,9 +476,24 @@ module.exports = class Statuseditor {
         return;
       }
 
+      let jsonString = this.settings.widgetJson;
+      
+      let lifeMinutes = 0;
+      if (this.settings.birthDate) {
+        const bd = new Date(this.settings.birthDate).getTime();
+        if (!isNaN(bd)) {
+          lifeMinutes = Math.floor((Date.now() - bd) / 60000);
+        }
+      }
+      
+      const callMinutes = this.settings.totalCallMinutes || 0;
+
+      jsonString = jsonString.replace(/\{\{LIFE_MINUTES\}\}/g, lifeMinutes.toString());
+      jsonString = jsonString.replace(/\{\{CALL_MINUTES\}\}/g, callMinutes.toString());
+
       let parsedJson;
       try {
-        parsedJson = JSON.parse(this.settings.widgetJson);
+        parsedJson = JSON.parse(jsonString);
       } catch (e) {
         if (!silent) BdApi.UI.showToast("Invalid Widget JSON format", { type: "error" });
         return;
@@ -1294,6 +1346,64 @@ module.exports = class Statuseditor {
     wIntervalGroup.appendChild(wIntervalInput);
     widgetSection.appendChild(wIntervalGroup);
 
+    const wDynSection = document.createElement("div");
+    wDynSection.classList.add("sc-section");
+    wDynSection.style.marginTop = "20px";
+    wDynSection.style.background = "#111214";
+    wDynSection.innerHTML = `
+      <div class="sc-section-title">Dynamic Variables</div>
+      <div class="sc-field-desc" style="margin-bottom: 16px;">
+        You can use <code>{{LIFE_MINUTES}}</code> or <code>{{CALL_MINUTES}}</code> in your Widget JSON. The plugin will automatically replace them with real numbers before pushing to Discord.
+      </div>
+    `;
+
+    const wDynRow = document.createElement("div");
+    wDynRow.classList.add("sc-row");
+
+    const wBdGroup = document.createElement("div");
+    wBdGroup.classList.add("sc-form-group");
+    wBdGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Birth Date (For Life Minutes)</span></div>`;
+    const wBdInput = document.createElement("input");
+    wBdInput.type = "datetime-local";
+    wBdInput.classList.add("sc-input");
+    wBdInput.value = this.settings.birthDate || "2000-01-01T12:00";
+    wBdInput.onchange = () => { this.settings.birthDate = wBdInput.value; };
+    wBdGroup.appendChild(wBdInput);
+    wDynRow.appendChild(wBdGroup);
+
+    const wCallGroup = document.createElement("div");
+    wCallGroup.classList.add("sc-form-group");
+    wCallGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Voice Call Tracker</span></div>`;
+    
+    const wCallContent = document.createElement("div");
+    wCallContent.style.display = "flex";
+    wCallContent.style.alignItems = "center";
+    wCallContent.style.gap = "12px";
+
+    const wCallMinDisplay = document.createElement("div");
+    wCallMinDisplay.id = "sc-call-min-display";
+    wCallMinDisplay.style.color = "#dbdee1";
+    wCallMinDisplay.style.fontSize = "14px";
+    wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " minutes tracked";
+    wCallContent.appendChild(wCallMinDisplay);
+
+    const wCallResetBtn = document.createElement("button");
+    wCallResetBtn.classList.add("sc-btn", "sc-btn-danger", "sc-btn-sm");
+    wCallResetBtn.textContent = "Reset";
+    wCallResetBtn.onclick = () => {
+      this.settings.totalCallMinutes = 0;
+      this.saveSettings();
+      wCallMinDisplay.textContent = "0 minutes tracked";
+      BdApi.UI.showToast("Voice Call Minutes reset to 0", { type: "info" });
+    };
+    wCallContent.appendChild(wCallResetBtn);
+
+    wCallGroup.appendChild(wCallContent);
+    wDynRow.appendChild(wCallGroup);
+
+    wDynSection.appendChild(wDynRow);
+    widgetSection.appendChild(wDynSection);
+
     const wPushBtn = document.createElement("button");
     wPushBtn.classList.add("sc-btn", "sc-btn-primary");
     wPushBtn.style.marginTop = "12px";
@@ -1336,6 +1446,8 @@ module.exports = class Statuseditor {
       wJsonInput.value = this.settings.widgetJson || "";
       wAutoSyncCheck.checked = this.settings.widgetAutoSync;
       wIntervalInput.value = this.settings.widgetSyncInterval.toString();
+      wBdInput.value = this.settings.birthDate || "2000-01-01T12:00";
+      wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " minutes tracked";
 
       renderSteps();
 
