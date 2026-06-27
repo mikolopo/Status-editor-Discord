@@ -6,6 +6,13 @@
  * @website https://github.com/mikolopo/Status-editor-Discord
  */
 
+let nativeFs = null;
+try {
+  nativeFs = require("fs");
+} catch (e) {
+  console.error("Statuseditor: Failed to load native fs module:", e);
+}
+
 module.exports = class Statuseditor {
   constructor(meta) {
     this.meta = meta;
@@ -27,11 +34,14 @@ module.exports = class Statuseditor {
       applicationId: "",
       enableCustomActivity: true,
       widgetAppId: "",
-      widgetJson: "",
+      widgetBotToken: "",
+      widgetConfigId: "",
+      widgetSurfaces: null,
       widgetAutoSync: false,
       widgetSyncInterval: 15,
-      targetDate: "2000-01-01T12:00",
-      totalCallMinutes: 0
+      targetDate: "",
+      totalCallMinutes: 0,
+      customVariables: []
     };
 
     const saved = BdApi.Data.load("Statuseditor", "settings");
@@ -80,6 +90,9 @@ module.exports = class Statuseditor {
 
     this.startCallTracking();
 
+    // Expose instance globally for custom scripts
+    window.statusEditorInstance = this;
+
     BdApi.UI.showToast("Status Editor: Activated", { type: "success" });
   }
 
@@ -87,6 +100,10 @@ module.exports = class Statuseditor {
     this.stopCycle();
     this.stopWidgetSync();
     this.stopCallTracking();
+
+    // Clean up global instance
+    delete window.statusEditorInstance;
+
     BdApi.Patcher.unpatchAll("Statuseditor");
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
   }
@@ -180,6 +197,86 @@ module.exports = class Statuseditor {
         application_id: "0",
         flags: 1
       };
+    }
+  }
+
+  async getLolStats() {
+    try {
+      const lockpath = "C:/Riot Games/League of Legends/lockfile";
+      if (!nativeFs || !nativeFs.existsSync(lockpath)) {
+        return "Game Off 💤";
+      }
+
+      // Find the latest log file to read the gameflow phase
+      const logDir = "C:/Riot Games/League of Legends/Logs/LeagueClient Logs";
+      if (!nativeFs.existsSync(logDir)) {
+        return "LoL: Client Running 🎮";
+      }
+
+      const files = nativeFs.readdirSync(logDir);
+      const logFiles = files.filter(f => f.endsWith(".log") && f.includes("LeagueClient"));
+      if (logFiles.length === 0) {
+        return "LoL: Client Running 🎮";
+      }
+
+      // Sort alphabetically - since Riot uses ISO timestamps, the last file is always the newest
+      logFiles.sort();
+      const latestFile = logFiles[logFiles.length - 1];
+
+      const logPath = logDir + "/" + latestFile;
+      const logContent = nativeFs.readFileSync(logPath, "utf-8");
+
+      // Find the last gameflow phase logged
+      const matches = [...logContent.matchAll(/GameflowMonitor: marking (\w+) phase/g)];
+      let phase = "None";
+      if (matches.length > 0) {
+        phase = matches[matches.length - 1][1];
+      }
+
+      if (!phase || phase === "None") return "LoL: Main Menu 🎮";
+      if (phase === "Lobby") return "LoL: In Lobby 🏆";
+      if (phase === "Matchmaking") return "LoL: In Queue 🔍";
+      if (phase === "ReadyCheck") return "LoL: Match Ready! ⚡";
+      if (phase === "ChampSelect") return "LoL: Champ Select 🎴";
+      if (phase === "GameStart") return "LoL: Loading Match... ⚔️";
+
+      if (phase === "InProgress" || phase === "Reconnect") {
+        try {
+          // Fetch live game stats via HTTPS (port 2999) - passing rejectUnauthorized directly to bypass SSL
+          const gameRes = await BdApi.Net.fetch("https://127.0.0.1:2999/liveclientdata/allgamedata", {
+            rejectUnauthorized: false
+          });
+          if (gameRes.ok) {
+            const gameData = await gameRes.json();
+            const activePlayerName = gameData.activePlayer?.summonerName;
+            const me = gameData.allPlayers?.find(p => 
+              p.summonerName && activePlayerName && 
+              p.summonerName.toLowerCase().replace(/\s+/g, "") === activePlayerName.toLowerCase().replace(/\s+/g, "")
+            );
+            
+            if (me) {
+              const champion = me.championName;
+              const scores = me.scores || {};
+              console.log("Statuseditor LoL: Player scores object:", scores);
+              
+              const cs = scores.creepScore !== undefined ? scores.creepScore : (scores.creepscore !== undefined ? scores.creepscore : 0);
+              const gameTimeSec = gameData.gameData?.gameTime || 0;
+              const gameTimeMin = Math.floor(gameTimeSec / 60);
+
+              return `🎮 ${champion} (${scores.kills}/${scores.deaths}/${scores.assists}) | CS: ${cs} | ⏱️ ${gameTimeMin}m`;
+            }
+          }
+        } catch (e) {
+          // Fallback if port 2999 is not responding or blocked
+          return "LoL: In Game ⚔️";
+        }
+        return "LoL: In Game ⚔️";
+      }
+
+      return `LoL: ${phase}`;
+    } catch (e) {
+      console.error("Statuseditor LoL: Error:", e);
+      return "Game Off 💤";
     }
   }
 
@@ -411,10 +508,10 @@ module.exports = class Statuseditor {
 
   startWidgetSync() {
     this.stopWidgetSync();
-    if (!this.settings.widgetAppId || !this.settings.widgetBotToken || !this.settings.widgetJson) return;
+    if (!this.settings.widgetAppId || !this.settings.widgetBotToken) return;
     
-    // Convert minutes to milliseconds (minimum 5 minutes to avoid rate limiting)
-    const intervalMs = Math.max(5, this.settings.widgetSyncInterval || 15) * 60 * 1000;
+    // Convert minutes to milliseconds (minimum 1 minute)
+    const intervalMs = Math.max(1, this.settings.widgetSyncInterval || 15) * 60 * 1000;
     
     this.pushWidget(true); // Initial push silently
     this.widgetSyncTimer = setInterval(() => {
@@ -462,67 +559,583 @@ module.exports = class Statuseditor {
   }
 
   async pushWidget(silent = false) {
-    if (!this.settings.widgetAppId || !this.settings.widgetBotToken || !this.settings.widgetJson) {
-      BdApi.UI.showToast("Widget Setup Incomplete: Missing App ID, Token, or JSON", { type: "error" });
+    if (!this.settings.widgetAppId || !this.settings.widgetBotToken) {
+      if (!silent) BdApi.UI.showToast("Widget Setup Incomplete: Missing App ID or Bot Token", { type: "error" });
       return;
     }
-
     try {
       const UserStore = BdApi.Webpack.getStore("UserStore");
       const userId = UserStore?.getCurrentUser()?.id;
+      if (!userId) { if (!silent) BdApi.UI.showToast("Could not get current User ID", { type: "error" }); return; }
 
-      if (!userId) {
-        if (!silent) BdApi.UI.showToast("Could not get current User ID", { type: "error" });
-        return;
+      const formatMins = (m) => {
+        const y = Math.floor(m / 525960), d = Math.floor((m % 525960) / 1440), h = Math.floor((m % 1440) / 60);
+        let p = []; if (y > 0) p.push(y + "yr"); if (d > 0) p.push(d + "day"); p.push(h + "h");
+        return p.join(" ") || "0h";
+      };
+
+      let minsSince = 0;
+      if (this.settings.targetDate) {
+        const t = new Date(this.settings.targetDate).getTime();
+        if (!isNaN(t)) minsSince = Math.floor((Date.now() - t) / 60000);
+      }
+      const callMins = this.settings.totalCallMinutes || 0;
+
+      // Find all dynamic variables and their presentation types from the surfaces
+      const dynamicFields = [];
+      const varNames = new Set();
+      const presentationTypes = {};
+
+      if (this.settings.widgetSurfaces) {
+        const traverse = (obj) => {
+          if (!obj || typeof obj !== "object") return;
+          if (obj.value_type === "data" && typeof obj.value === "string" && obj.value) {
+            varNames.add(obj.value);
+            if (obj.presentation_type) {
+              presentationTypes[obj.value] = obj.presentation_type;
+            }
+          }
+          for (const k in obj) {
+            if (obj.hasOwnProperty(k)) traverse(obj[k]);
+          }
+        };
+        traverse(this.settings.widgetSurfaces);
+      } else {
+        // Fallback defaults
+        varNames.add("minutes_since");
+        varNames.add("discord_wasted");
+        presentationTypes["minutes_since"] = "number";
+        presentationTypes["discord_wasted"] = "text";
       }
 
-      let jsonString = this.settings.widgetJson;
-      
-      let minutesSinceDate = 0;
-      if (this.settings.targetDate) {
-        const bd = new Date(this.settings.targetDate).getTime();
-        if (!isNaN(bd)) {
-          minutesSinceDate = Math.floor((Date.now() - bd) / 60000);
+      // Helper to resolve variable values asynchronously
+      const resolveVariable = async (name) => {
+        if (name === "minutes_since" || name === "minutes_since_formatted") return minsSince;
+        if (name === "discord_wasted" || name === "discord_wasted_formatted") return callMins;
+        if (name === "lol_stats") return await this.getLolStats();
+
+        const cv = (this.settings.customVariables || []).find(v => v.name === name);
+        if (!cv) return "";
+
+        if (cv.type === "js") {
+          try {
+            // Compile as AsyncFunction and inject native Node.js fs and child_process modules (mocked as null due to sandbox)
+            const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+            const fn = new AsyncFunction("fs", "child_process", "BdApi", cv.code);
+            return await fn(nativeFs, null, BdApi);
+          } catch (e) {
+            console.error(`Statuseditor: Custom JS variable ${name} error:`, e);
+            return "JS Error";
+          }
+        } else if (cv.type === "url") {
+          try {
+            const res = await window.fetch(cv.code);
+            if (res.ok) {
+              const data = await res.json();
+              if (cv.jsonPath) {
+                const path = cv.jsonPath.replace(/^\$\.?/, "").split(".");
+                let obj = data;
+                for (const key of path) {
+                  if (obj && obj[key] !== undefined) obj = obj[key];
+                  else return "Not Found";
+                }
+                return obj;
+              }
+              return typeof data === "object" ? JSON.stringify(data) : data;
+            }
+            return `HTTP ${res.status}`;
+          } catch (e) {
+            return "Fetch Error";
+          }
+        }
+        return cv.code || ""; // static text
+      };
+
+      for (const name of varNames) {
+        const presType = presentationTypes[name] || "text";
+        const val = await resolveVariable(name);
+
+        if (presType === "number") {
+          const numVal = Number(val);
+          dynamicFields.push({ type: 2, name, value: isNaN(numVal) ? 0 : numVal });
+        } else {
+          let stringVal;
+          if ((name === "minutes_since_formatted" || name === "discord_wasted_formatted") && typeof val === "number") {
+            stringVal = formatMins(val);
+          } else {
+            stringVal = String(val);
+          }
+          dynamicFields.push({ type: 1, name, value: stringVal });
         }
       }
-      
-      const callMinutes = this.settings.totalCallMinutes || 0;
 
-      jsonString = jsonString.replace(/\{\{LIFE_MINUTES\}\}/g, minutesSinceDate.toString());
-      jsonString = jsonString.replace(/\{\{MINUTES_SINCE_DATE\}\}/g, minutesSinceDate.toString());
-      jsonString = jsonString.replace(/\{\{CALL_MINUTES\}\}/g, callMinutes.toString());
-
-      let parsedJson;
-      try {
-        parsedJson = JSON.parse(jsonString);
-      } catch (e) {
-        if (!silent) BdApi.UI.showToast("Invalid Widget JSON format", { type: "error" });
-        return;
-      }
+      const payload = {
+        username: "StatuseditorWidget",
+        data: { dynamic: dynamicFields }
+      };
 
       const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
-      
-      const response = await window.fetch(url, {
+      const response = await BdApi.Net.fetch(url, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bot ${this.settings.widgetBotToken}`,
-          "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)"
+        headers: { "Content-Type": "application/json", "Authorization": `Bot ${this.settings.widgetBotToken}`, "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) { if (!silent) BdApi.UI.showToast("Widget data pushed!", { type: "success" }); }
+      else { const t = await response.text(); if (!silent) BdApi.UI.showToast(`Push failed: ${response.status}`, { type: "error" }); console.error("Widget Push Error:", t); }
+    } catch (e) { console.error("Widget Error:", e); if (!silent) BdApi.UI.showToast("Error pushing widget.", { type: "error" }); }
+  }
+
+  getUserToken() {
+    const AuthStore = BdApi.Webpack.getStore("AuthenticationStore");
+    if (AuthStore && typeof AuthStore.getToken === "function") {
+      const t = AuthStore.getToken();
+      if (t) return t;
+    }
+    const tokenModule = BdApi.Webpack.getModule(m => m?.default?.getToken);
+    if (tokenModule && tokenModule.default && typeof tokenModule.default.getToken === "function") {
+      return tokenModule.default.getToken();
+    }
+    return null;
+  }
+
+  async fetchWidgetConfig() {
+    const token = this.getUserToken();
+    if (!token) {
+      console.error("Statuseditor: Failed to get user token");
+      return null;
+    }
+    if (!this.settings.widgetAppId || !this.settings.widgetConfigId) {
+      console.error("Statuseditor: Missing App ID or Config ID in settings");
+      return null;
+    }
+    try {
+      // Method 1: Get configs list for the application
+      const urlApp = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/widget-configs`;
+      console.log("Statuseditor: Trying to fetch from:", urlApp);
+      let res = await window.fetch(urlApp, {
+        headers: { "Authorization": token }
+      });
+      
+      let configs = [];
+      if (res.ok) {
+        configs = await res.json();
+      } else {
+        console.warn(`Statuseditor: Fetch from ${urlApp} failed (${res.status}). Trying developer fallback...`);
+        // Method 2: Fallback to all developer configs
+        const urlDev = `https://discord.com/api/v9/widget-configs/developer`;
+        res = await window.fetch(urlDev, {
+          headers: { "Authorization": token }
+        });
+        if (res.ok) {
+          const devData = await res.json();
+          // The dev endpoint might return a map or array
+          if (devData && typeof devData === "object") {
+            configs = Array.isArray(devData) ? devData : Object.values(devData);
+          }
+        }
+      }
+
+      if (!res.ok) {
+        console.error("Statuseditor: Both fetch methods failed");
+        return null;
+      }
+
+      // Find the config with the matching ID
+      const targetConfig = configs.find(c => c.config_id === this.settings.widgetConfigId || c.id === this.settings.widgetConfigId);
+      if (targetConfig) {
+        console.log("Statuseditor: Successfully found widget config:", targetConfig);
+        return targetConfig;
+      }
+
+      console.error("Statuseditor: Could not find config with ID", this.settings.widgetConfigId, "in fetched configs:", configs);
+      return null;
+    } catch (e) {
+      console.error("Statuseditor: Fetch widget config exception:", e);
+      return null;
+    }
+  }
+
+  async pushWidgetConfig() {
+    if (!this.settings.widgetAppId || !this.settings.widgetConfigId) {
+      BdApi.UI.showToast("Missing App ID or Config ID!", { type: "error" }); return;
+    }
+    try {
+      const token = this.getUserToken();
+      if (!token) { BdApi.UI.showToast("Could not get user token!", { type: "error" }); return; }
+
+      const surfaces = this.settings.widgetSurfaces;
+      if (!surfaces) { BdApi.UI.showToast("Load the config first!", { type: "warning" }); return; }
+
+      const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/widget-configs/${this.settings.widgetConfigId}`;
+      const res = await window.fetch(url, {
+        method: "PATCH",
+        headers: { "Authorization": token, "Content-Type": "application/json" },
+        body: JSON.stringify({ surfaces })
+      });
+      if (res.ok) {
+        BdApi.UI.showToast("Config saved to portal!", { type: "success" });
+        this.pushWidget(true);
+      } else {
+        const errText = await res.text();
+        console.error("Widget Config Error:", errText);
+        try {
+          const errObj = JSON.parse(errText);
+          if (errText.includes("WIDGET_CONFIG_MISSING_ASSET")) {
+            BdApi.UI.showToast("Błąd: Wybrany layout wymaga assetu graficznego! Dodaj go w Developer Portal (Rich Presence -> Art Assets) i wybierz poprawną nazwę we wtyczce.", { type: "error", timeout: 8000 });
+          } else if (errObj.errors) {
+            const getErrorMsg = (obj) => {
+              if (typeof obj === "string") return obj;
+              if (Array.isArray(obj)) return obj.map(getErrorMsg).join(", ");
+              if (obj._errors) return obj._errors.map(x => x.message).join(", ");
+              for (const k in obj) {
+                const msg = getErrorMsg(obj[k]);
+                if (msg) return `${k}: ${msg}`;
+              }
+              return null;
+            };
+            const msg = getErrorMsg(errObj.errors);
+            BdApi.UI.showToast(`Błąd zapisu: ${msg || errObj.message}`, { type: "error", timeout: 6000 });
+          } else {
+            BdApi.UI.showToast(`Błąd zapisu: ${errObj.message || res.status}`, { type: "error" });
+          }
+        } catch (e) {
+          BdApi.UI.showToast("Błąd zapisu konfiguracji: " + res.status, { type: "error" });
+        }
+      }
+    } catch (e) { BdApi.UI.showToast("Error saving config", { type: "error" }); console.error(e); }
+  }
+
+  async loadWidgetEditorInto(container) {
+    container.innerHTML = `<div style="text-align:center;padding:20px;opacity:.6">⏳ Ladowanie konfiguracji z Discorda...</div>`;
+    const config = await this.fetchWidgetConfig();
+    container.innerHTML = "";
+
+    if (!config || !config.surfaces) {
+      container.innerHTML = `<div style="text-align:center;padding:16px;color:#ed4245;">Blad pobierania konfiguracji. Sprawdz App ID i Config ID.</div>`;
+      return;
+    }
+
+    this.settings.widgetSurfaces = JSON.parse(JSON.stringify(config.surfaces));
+    this.saveSettings();
+
+    this.renderWidgetEditor(container, config.resolved_assets || []);
+  }
+
+  renderWidgetEditor(container, resolvedAssets, activeTabKey = null) {
+    container.innerHTML = "";
+
+    const SURFACE_LABELS = {
+      widget_top: "Widget Top",
+      widget_bottom: "Widget Bottom",
+      mini_profile: "Mini Profile",
+      add_widget_preview: "Add Widget Preview",
+      activity_accessory: "Activity Accessory"
+    };
+
+    const LAYOUT_OPTIONS = {
+      widget_bottom: [
+        { value: "widget_bottom_stats", label: "Stats Grid (6 stats)" },
+        { value: "widget_bottom_progress", label: "Progress Bar" },
+        { value: "widget_bottom_collection", label: "Collection" }
+      ],
+      widget_top: [
+        { value: "widget_top_contained", label: "Contained Image + Title" }
+      ],
+      mini_profile: [
+        { value: "mini_profile_hero_stat", label: "Hero Stat + Image" }
+      ],
+      add_widget_preview: [
+        { value: "add_widget_preview_contained", label: "Contained Image" }
+      ],
+      activity_accessory: [
+        { value: "activity_accessory_stat", label: "Stat Text" }
+      ]
+    };
+
+    const LAYOUT_TEMPLATES = {
+      widget_bottom: {
+        widget_bottom_stats: {
+          layout: "widget_bottom_stats",
+          components: {
+            stat_1: { fields: { label: { value_type: "custom_string", presentation_type: "text", value: "" }, value: { value_type: "custom_string", presentation_type: "text", value: "" } } },
+            stat_2: { fields: { label: { value_type: "custom_string", presentation_type: "text", value: "" }, value: { value_type: "custom_string", presentation_type: "text", value: "" } } },
+            stat_3: { fields: { label: { value_type: "custom_string", presentation_type: "text", value: "" }, value: { value_type: "custom_string", presentation_type: "text", value: "" } } },
+            stat_4: { fields: { label: { value_type: "custom_string", presentation_type: "text", value: "" }, value: { value_type: "custom_string", presentation_type: "text", value: "" } } },
+            stat_5: { fields: { label: { value_type: "custom_string", presentation_type: "text", value: "" }, value: { value_type: "custom_string", presentation_type: "text", value: "" } } },
+            stat_6: { fields: { label: { value_type: "custom_string", presentation_type: "text", value: "" }, value: { value_type: "custom_string", presentation_type: "text", value: "" } } }
+          }
         },
-        body: JSON.stringify(parsedJson)
+        widget_bottom_progress: {
+          layout: "widget_bottom_progress",
+          components: {
+            progress: {
+              fields: {
+                label: { value_type: "custom_string", presentation_type: "text", value: "Progress:" },
+                value: { value_type: "data", presentation_type: "number", value: "minutes_since" },
+                max_value: { value_type: "custom_string", presentation_type: "number", value: "100" }
+              }
+            }
+          }
+        },
+        widget_bottom_collection: {
+          layout: "widget_bottom_collection",
+          components: {
+            collection: {
+              fields: {
+                items: { value_type: "custom_string", presentation_type: "text", value: "Item 1, Item 2, Item 3" }
+              }
+            }
+          }
+        }
+      },
+      widget_top: {
+        widget_top_contained: {
+          layout: "widget_top_contained",
+          components: {
+            title: { fields: { text: { value_type: "custom_string", presentation_type: "text", value: "Title" } } },
+            contained_image: { fields: { image: { value_type: "application_asset", presentation_type: "image", value: "" } } }
+          }
+        }
+      },
+      mini_profile: {
+        mini_profile_hero_stat: {
+          layout: "mini_profile_hero_stat",
+          components: {
+            stat: { fields: { text: { value_type: "data", presentation_type: "text", value: "" } } },
+            hero_image: { fields: { image: { value_type: "application_asset", presentation_type: "image", value: "" } } }
+          }
+        }
+      },
+      add_widget_preview: {
+        add_widget_preview_contained: {
+          layout: "add_widget_preview_contained",
+          components: {
+            contained_image: { fields: { image: { value_type: "application_asset", presentation_type: "image", value: "" } } }
+          }
+        }
+      },
+      activity_accessory: {
+        activity_accessory_stat: {
+          layout: "activity_accessory_stat",
+          components: {
+            stat: { fields: { text: { value_type: "data", presentation_type: "text", value: "" } } }
+          }
+        }
+      }
+    };
+
+    const DATA_OPTIONS = [
+      { value: "", label: "-- Statyczny tekst --" },
+      { value: "minutes_since_formatted", label: "Czas zycia (Formatowany: 20yr 5day 3h)" },
+      { value: "minutes_since", label: "Czas zycia (Liczba minut)" },
+      { value: "discord_wasted_formatted", label: "Czas Discord (Formatowany: 1day 7h)" },
+      { value: "discord_wasted", label: "Czas Discord (Liczba minut)" },
+      { value: "lol_stats", label: "League of Legends Live Companion 🎮" }
+    ];
+
+    (this.settings.customVariables || []).forEach(v => {
+      if (v.name) DATA_OPTIONS.push({ value: v.name, label: `Custom: ${v.name}` });
+    });
+
+    const ASSET_OPTIONS = (resolvedAssets || []).map(a => ({ value: a.id || a.name, label: a.name || a.id }));
+
+    // Tab system
+    const tabBar = document.createElement("div");
+    tabBar.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;";
+    const tabContents = {};
+
+    const surfaces = this.settings.widgetSurfaces || {};
+    const surfaceKeys = Object.keys(surfaces).sort((a,b) => {
+      const order = ["widget_top","widget_bottom","mini_profile","add_widget_preview","activity_accessory"];
+      return order.indexOf(a) - order.indexOf(b);
+    });
+
+    if (surfaceKeys.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:12px;opacity:.5">Brak powierzchni do wyrenderowania.</div>`;
+      return;
+    }
+
+    let activeTab = activeTabKey && surfaceKeys.includes(activeTabKey) ? activeTabKey : surfaceKeys[0];
+
+    const activateTab = (key) => {
+      activeTab = key;
+      Object.entries(tabContents).forEach(([k, el]) => { el.style.display = k === key ? "block" : "none"; });
+      tabBar.querySelectorAll(".we-tab").forEach(btn => {
+        btn.style.background = btn.dataset.key === key ? "#5865f2" : "rgba(255,255,255,.08)";
+      });
+    };
+
+    surfaceKeys.forEach(surfKey => {
+      const btn = document.createElement("button");
+      btn.className = "we-tab";
+      btn.dataset.key = surfKey;
+      btn.textContent = SURFACE_LABELS[surfKey] || surfKey;
+      btn.style.cssText = "padding:5px 12px;border:none;border-radius:6px;cursor:pointer;color:#fff;font-size:12px;font-weight:600;background:rgba(255,255,255,.08);";
+      btn.onclick = () => activateTab(surfKey);
+      tabBar.appendChild(btn);
+
+      const surfData = surfaces[surfKey];
+      const content = document.createElement("div");
+      content.style.display = "none";
+      tabContents[surfKey] = content;
+
+      // Layout Selector Dropdown
+      const layoutRow = document.createElement("div");
+      layoutRow.style.cssText = "display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.08);";
+      layoutRow.innerHTML = `<span style="font-size:12px;color:#949ba4;min-width:50px;">Layout:</span>`;
+      
+      const layoutSel = document.createElement("select");
+      layoutSel.classList.add("sc-input");
+      layoutSel.style.cssText = "margin:0;padding:4px 8px;font-size:12px;max-width:200px;cursor:pointer;";
+      
+      const opts = LAYOUT_OPTIONS[surfKey] || [{ value: surfData.layout, label: surfData.layout }];
+      opts.forEach(opt => {
+        const o = document.createElement("option");
+        o.value = opt.value; o.textContent = opt.label;
+        if (surfData.layout === opt.value) o.selected = true;
+        layoutSel.appendChild(o);
       });
 
-      if (response.ok) {
-        if (!silent) BdApi.UI.showToast("Widget pushed successfully!", { type: "success" });
-      } else {
-        const text = await response.text();
-        console.error("Statuseditor Widget Push Error:", text);
-        if (!silent) BdApi.UI.showToast(`Failed to push widget: ${response.status}`, { type: "error" });
-      }
-    } catch (e) {
-      console.error("Statuseditor Widget Error:", e);
-      if (!silent) BdApi.UI.showToast("Error pushing widget. Check console.", { type: "error" });
-    }
+      layoutSel.onchange = () => {
+        const newLayout = layoutSel.value;
+        if (LAYOUT_TEMPLATES[surfKey] && LAYOUT_TEMPLATES[surfKey][newLayout]) {
+          this.settings.widgetSurfaces[surfKey] = JSON.parse(JSON.stringify(LAYOUT_TEMPLATES[surfKey][newLayout]));
+          this.saveSettings();
+          this.renderWidgetEditor(container, resolvedAssets, activeTab);
+        } else {
+          BdApi.UI.showToast("Brak zdefiniowanego szablonu dla tego layoutu we wtyczce.", { type: "warning" });
+        }
+      };
+
+      layoutRow.appendChild(layoutSel);
+      content.appendChild(layoutRow);
+
+      // Render components
+      const components = surfData.components || {};
+      Object.entries(components).forEach(([compKey, compData]) => {
+        const compBox = document.createElement("div");
+        compBox.style.cssText = "background:rgba(255,255,255,.04);border-radius:8px;padding:12px;margin-bottom:8px;";
+        compBox.innerHTML = `<div style="font-size:11px;font-weight:700;color:#949ba4;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">${compKey}</div>`;
+
+        const fields = compData.fields || {};
+        Object.entries(fields).forEach(([fieldKey, fieldData]) => {
+          const fieldRow = document.createElement("div");
+          fieldRow.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;";
+
+          const fieldLabel = document.createElement("span");
+          fieldLabel.style.cssText = "font-size:12px;color:#b5bac1;min-width:70px;";
+          fieldLabel.textContent = fieldKey + ":";
+          fieldRow.appendChild(fieldLabel);
+
+          if (fieldData.presentation_type === "image") {
+            const sel = document.createElement("select");
+            sel.classList.add("sc-input");
+            sel.style.cssText = "flex:1;margin:0;padding:5px 8px;font-size:12px;";
+            if (ASSET_OPTIONS.length > 0) {
+              ASSET_OPTIONS.forEach(opt => {
+                const o = document.createElement("option");
+                o.value = opt.value; o.textContent = opt.label;
+                if (fieldData.value === opt.value) o.selected = true;
+                sel.appendChild(o);
+              });
+            } else {
+              const inp = document.createElement("input");
+              inp.type = "text"; inp.classList.add("sc-input");
+              inp.style.cssText = "flex:1;margin:0;padding:5px 8px;font-size:12px;";
+              inp.value = fieldData.value || "";
+              inp.placeholder = "Asset key";
+              inp.oninput = () => { this.settings.widgetSurfaces[surfKey].components[compKey].fields[fieldKey].value = inp.value; };
+              fieldRow.appendChild(inp); compBox.appendChild(fieldRow); return;
+            }
+            sel.onchange = () => { this.settings.widgetSurfaces[surfKey].components[compKey].fields[fieldKey].value = sel.value; };
+            fieldRow.appendChild(sel);
+          } else {
+            // Universal field container: dropdown + conditional input
+            const fieldCol = document.createElement("div");
+            fieldCol.style.cssText = "flex:1;display:flex;flex-direction:column;gap:4px;";
+
+            const sel = document.createElement("select");
+            sel.classList.add("sc-input");
+            sel.style.cssText = "margin:0;padding:5px 8px;font-size:12px;cursor:pointer;";
+            DATA_OPTIONS.forEach(opt => {
+              const o = document.createElement("option");
+              o.value = opt.value; o.textContent = opt.label;
+              if (fieldData.value_type === "data" && fieldData.value === opt.value) o.selected = true;
+              sel.appendChild(o);
+            });
+            
+            // If it's a custom string, select the static text option
+            const staticOpt = document.createElement("option");
+            staticOpt.value = ""; staticOpt.textContent = "-- Statyczny tekst --";
+            if (fieldData.value_type !== "data") staticOpt.selected = true;
+            sel.insertBefore(staticOpt, sel.firstChild);
+
+            // Handle custom unknown data values
+            if (fieldData.value_type === "data" && !DATA_OPTIONS.find(x => x.value === fieldData.value)) {
+              const customOpt = document.createElement("option");
+              customOpt.value = fieldData.value || ""; customOpt.textContent = `(custom: ${fieldData.value || ""})`;
+              customOpt.selected = true;
+              sel.appendChild(customOpt);
+            }
+
+            const inp = document.createElement("input");
+            inp.type = "text"; inp.classList.add("sc-input");
+            inp.style.cssText = "margin:0;padding:5px 8px;font-size:12px;";
+            inp.value = fieldData.value_type !== "data" ? (fieldData.value || "") : "";
+            inp.placeholder = fieldKey === "label" ? "Wpisz etykietę..." : "Wpisz tekst...";
+
+            // Toggle input visibility based on source selection
+            const updateVisibility = () => {
+              if (sel.value === "") {
+                inp.style.display = "block";
+              } else {
+                inp.style.display = "none";
+              }
+            };
+
+            sel.onchange = () => {
+              const v = sel.value;
+              if (v === "") {
+                fieldData.value_type = "custom_string";
+                fieldData.value = inp.value;
+                fieldData.presentation_type = "text";
+              } else {
+                fieldData.value_type = "data";
+                fieldData.value = v;
+                // Automatically set presentation_type based on selection
+                if (v === "minutes_since_formatted" || v === "discord_wasted_formatted" || !["minutes_since", "discord_wasted"].includes(v)) {
+                  fieldData.presentation_type = "text";
+                } else {
+                  fieldData.presentation_type = "number";
+                }
+              }
+              updateVisibility();
+              this.saveSettings();
+            };
+
+            inp.oninput = () => {
+              if (fieldData.value_type !== "data") {
+                fieldData.value = inp.value;
+                this.saveSettings();
+              }
+            };
+
+            updateVisibility();
+            fieldCol.appendChild(sel);
+            fieldCol.appendChild(inp);
+            fieldRow.appendChild(fieldCol);
+          }
+
+          compBox.appendChild(fieldRow);
+        });
+        content.appendChild(compBox);
+      });
+
+      container.appendChild(content);
+    });
+
+    container.insertBefore(tabBar, container.firstChild);
+    activateTab(activeTab);
   }
 
   getSettingsPanel() {
@@ -534,60 +1147,60 @@ module.exports = class Statuseditor {
       .sc-panel {
         color: #dbdee1;
         font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
-        padding: 20px;
+        padding: 28px;
         background: #2b2d31;
-        border-radius: 12px;
-        max-width: 680px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        border-radius: 14px;
+        max-width: 880px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.25);
       }
       .sc-header {
-        margin-bottom: 24px;
+        margin-bottom: 28px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        padding-bottom: 16px;
+        padding-bottom: 20px;
       }
       .sc-title {
         color: #f2f3f5;
-        font-size: 22px;
+        font-size: 26px;
         font-weight: 700;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
         letter-spacing: 0.3px;
       }
       .sc-subtitle {
         color: #949ba4;
-        font-size: 14px;
+        font-size: 15px;
       }
       
       .sc-tutorial-box {
         background: rgba(88, 101, 242, 0.06);
         border: 1px solid rgba(88, 101, 242, 0.2);
-        border-radius: 8px;
-        padding: 14px 18px;
-        margin-bottom: 24px;
-        font-size: 13px;
+        border-radius: 10px;
+        padding: 18px 22px;
+        margin-bottom: 28px;
+        font-size: 14px;
         line-height: 1.6;
         color: #dbdee1;
       }
       .sc-tutorial-title {
         font-weight: 700;
         color: #5865f2;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
         display: flex;
         align-items: center;
         gap: 8px;
-        font-size: 14px;
+        font-size: 16px;
       }
       
       .sc-status-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-        gap: 12px;
-        margin-bottom: 24px;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 14px;
+        margin-bottom: 28px;
       }
       .sc-status-card {
         background: #1e1f22;
         border: 1px solid #3f4147;
-        border-radius: 8px;
-        padding: 16px 12px;
+        border-radius: 10px;
+        padding: 20px 14px;
         text-align: center;
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -623,10 +1236,10 @@ module.exports = class Statuseditor {
       }
 
       .sc-dot {
-        width: 12px;
-        height: 12px;
+        width: 14px;
+        height: 14px;
         border-radius: 50%;
-        margin: 0 auto 10px auto;
+        margin: 0 auto 12px auto;
         display: block;
       }
       .sc-dot.online { background: #23a55a; }
@@ -636,30 +1249,30 @@ module.exports = class Statuseditor {
       .sc-dot.streaming { background: #a855f7; }
 
       .sc-status-label {
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
         color: #f2f3f5;
       }
 
       .sc-section {
         background: #1e1f22;
-        border-radius: 8px;
-        padding: 18px;
-        margin-bottom: 20px;
+        border-radius: 10px;
+        padding: 24px;
+        margin-bottom: 24px;
         border: 1px solid #3f4147;
       }
       .sc-section-title {
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 700;
         text-transform: uppercase;
         color: #949ba4;
-        margin-bottom: 18px;
+        margin-bottom: 22px;
         letter-spacing: 0.5px;
         border-left: 3px solid #5865f2;
-        padding-left: 8px;
+        padding-left: 10px;
       }
       .sc-form-group {
-        margin-bottom: 20px;
+        margin-bottom: 24px;
       }
       .sc-form-group:last-child {
         margin-bottom: 0;
@@ -668,19 +1281,19 @@ module.exports = class Statuseditor {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
       }
       .sc-label {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 700;
         color: #b5bac1;
         text-transform: uppercase;
       }
       
       .sc-field-desc {
-        font-size: 12px;
+        font-size: 13px;
         color: #949ba4;
-        margin-top: 6px;
+        margin-top: 8px;
         line-height: 1.5;
       }
 
@@ -688,11 +1301,11 @@ module.exports = class Statuseditor {
         width: 100%;
         background: #111214;
         border: 1px solid #3f4147;
-        border-radius: 6px;
-        padding: 10px 12px;
+        border-radius: 8px;
+        padding: 12px 16px;
         color: #dbdee1;
         font-family: inherit;
-        font-size: 14px;
+        font-size: 15px;
         box-sizing: border-box;
         transition: border-color 0.2s, box-shadow 0.2s;
       }
@@ -703,13 +1316,13 @@ module.exports = class Statuseditor {
       }
       .sc-textarea {
         resize: vertical;
-        min-height: 80px;
+        min-height: 100px;
       }
 
       .sc-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 16px;
+        gap: 20px;
       }
 
       .sc-toggle-container {
@@ -717,13 +1330,13 @@ module.exports = class Statuseditor {
         align-items: center;
         justify-content: space-between;
         background: #111214;
-        padding: 12px 16px;
-        border-radius: 6px;
+        padding: 14px 18px;
+        border-radius: 8px;
         border: 1px solid #3f4147;
-        margin-bottom: 16px;
+        margin-bottom: 20px;
       }
       .sc-toggle-label {
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
         color: #dbdee1;
       }
@@ -731,8 +1344,8 @@ module.exports = class Statuseditor {
       .sc-switch {
         position: relative;
         display: inline-block;
-        width: 44px;
-        height: 24px;
+        width: 48px;
+        height: 26px;
       }
       .sc-switch input {
         opacity: 0;
@@ -745,13 +1358,13 @@ module.exports = class Statuseditor {
         top: 0; left: 0; right: 0; bottom: 0;
         background-color: #4e5058;
         transition: .2s;
-        border-radius: 24px;
+        border-radius: 26px;
       }
       .sc-slider:before {
         position: absolute;
         content: "";
-        height: 18px;
-        width: 18px;
+        height: 20px;
+        width: 20px;
         left: 3px;
         bottom: 3px;
         background-color: #f2f3f5;
@@ -762,21 +1375,21 @@ module.exports = class Statuseditor {
         background-color: #23a55a;
       }
       input:checked + .sc-slider:before {
-        transform: translateX(20px);
+        transform: translateX(22px);
       }
 
       .sc-actions {
         display: flex;
         justify-content: flex-end;
-        gap: 12px;
-        margin-top: 24px;
+        gap: 16px;
+        margin-top: 28px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
-        padding-top: 16px;
+        padding-top: 20px;
       }
       .sc-btn {
-        padding: 10px 20px;
-        border-radius: 6px;
-        font-size: 14px;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 15px;
         font-weight: 600;
         cursor: pointer;
         border: none;
@@ -813,8 +1426,8 @@ module.exports = class Statuseditor {
         color: #f0b232;
         border: 1px solid rgba(240, 178, 50, 0.3);
         border-radius: 4px;
-        padding: 2px 6px;
-        font-size: 11px;
+        padding: 2px 8px;
+        font-size: 12px;
         font-weight: 700;
         text-transform: uppercase;
       }
@@ -1250,172 +1863,304 @@ module.exports = class Statuseditor {
 
     const widgetSection = document.createElement("div");
     widgetSection.classList.add("sc-section");
-    widgetSection.innerHTML = `
-      <div class="sc-section-title">Discord Widgets v2 (Advanced)</div>
-      <div class="sc-tutorial-box">
-        <div class="sc-tutorial-title">Profile Widget Generator</div>
-        This pushes your custom widget JSON to Discord's official profile widget system.
-        You must create an Application in the Developer Portal, authorize it for your account with the Social SDK, and provide the App ID and Bot Token below.
-      </div>
-    `;
+    widgetSection.innerHTML = `<div class="sc-section-title">🎨 Discord Widget Editor</div>`;
 
+    // Credentials
     const widgetCredsRow = document.createElement("div");
     widgetCredsRow.classList.add("sc-row");
-
-    const wAppGroup = document.createElement("div");
-    wAppGroup.classList.add("sc-form-group");
+    const wAppGroup = document.createElement("div"); wAppGroup.classList.add("sc-form-group");
     wAppGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Application ID</span></div>`;
     const wAppInput = document.createElement("input");
-    wAppInput.type = "text";
-    wAppInput.classList.add("sc-input");
+    wAppInput.type = "text"; wAppInput.classList.add("sc-input");
     wAppInput.value = this.settings.widgetAppId || "";
-    wAppInput.placeholder = "e.g. 1509844130082062396";
+    wAppInput.placeholder = "e.g. 1520473081284530257";
     wAppInput.oninput = () => { this.settings.widgetAppId = wAppInput.value; };
-    wAppGroup.appendChild(wAppInput);
-    widgetCredsRow.appendChild(wAppGroup);
+    wAppGroup.appendChild(wAppInput); widgetCredsRow.appendChild(wAppGroup);
 
-    const wTokenGroup = document.createElement("div");
-    wTokenGroup.classList.add("sc-form-group");
+    const wTokenGroup = document.createElement("div"); wTokenGroup.classList.add("sc-form-group");
     wTokenGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Bot Token</span></div>`;
     const wTokenInput = document.createElement("input");
-    wTokenInput.type = "password";
-    wTokenInput.classList.add("sc-input");
+    wTokenInput.type = "password"; wTokenInput.classList.add("sc-input");
     wTokenInput.value = this.settings.widgetBotToken || "";
     wTokenInput.placeholder = "Bot token for authorization";
     wTokenInput.oninput = () => { this.settings.widgetBotToken = wTokenInput.value; };
-    wTokenGroup.appendChild(wTokenInput);
-    widgetCredsRow.appendChild(wTokenGroup);
-
+    wTokenGroup.appendChild(wTokenInput); widgetCredsRow.appendChild(wTokenGroup);
     widgetSection.appendChild(widgetCredsRow);
 
-    const wJsonGroup = document.createElement("div");
-    wJsonGroup.classList.add("sc-form-group");
-    wJsonGroup.style.marginTop = "16px";
-    wJsonGroup.innerHTML = `
-      <div class="sc-label-container">
-        <span class="sc-label">Widget Sample Data JSON</span>
-      </div>
-      <div class="sc-field-desc" style="margin-bottom: 8px;">Paste the JSON generated from the Developer Portal "Sample Data" tab here.</div>
-    `;
-    const wJsonInput = document.createElement("textarea");
-    wJsonInput.classList.add("sc-textarea");
-    wJsonInput.value = this.settings.widgetJson || "";
-    wJsonInput.placeholder = '{"username": "My Name", "data": {...}}';
-    wJsonInput.style.fontFamily = "monospace";
-    wJsonInput.style.minHeight = "120px";
-    wJsonInput.oninput = () => { this.settings.widgetJson = wJsonInput.value; };
-    wJsonGroup.appendChild(wJsonInput);
-    widgetSection.appendChild(wJsonGroup);
+    // Config ID
+    const wConfigGroup = document.createElement("div"); wConfigGroup.classList.add("sc-form-group"); wConfigGroup.style.marginTop = "10px";
+    wConfigGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Widget Config ID</span><span style="font-size:11px;opacity:.5;margin-left:8px;">(numer z URL /widget-configs/NUMER)</span></div>`;
+    const wConfigInput = document.createElement("input");
+    wConfigInput.type = "text"; wConfigInput.classList.add("sc-input");
+    wConfigInput.value = this.settings.widgetConfigId || "";
+    wConfigInput.placeholder = "e.g. 1520474760562348042";
+    wConfigInput.oninput = () => { this.settings.widgetConfigId = wConfigInput.value; };
+    wConfigGroup.appendChild(wConfigInput); widgetSection.appendChild(wConfigGroup);
 
-    const wAutoSyncToggle = document.createElement("div");
-    wAutoSyncToggle.classList.add("sc-toggle-container");
-    wAutoSyncToggle.style.marginTop = "16px";
-
-    const wAutoSyncLabel = document.createElement("span");
-    wAutoSyncLabel.classList.add("sc-toggle-label");
-    wAutoSyncLabel.textContent = "Enable Auto-Sync Widget";
+    // Auto-sync toggle
+    const wAutoSyncToggle = document.createElement("div"); wAutoSyncToggle.classList.add("sc-toggle-container"); wAutoSyncToggle.style.marginTop = "16px";
+    const wAutoSyncLabel = document.createElement("span"); wAutoSyncLabel.classList.add("sc-toggle-label"); wAutoSyncLabel.textContent = "Enable Auto-Sync Widget";
     wAutoSyncToggle.appendChild(wAutoSyncLabel);
-
-    const wAutoSyncSwitchLabel = document.createElement("label");
-    wAutoSyncSwitchLabel.classList.add("sc-switch");
-
-    const wAutoSyncCheck = document.createElement("input");
-    wAutoSyncCheck.type = "checkbox";
-    wAutoSyncCheck.checked = this.settings.widgetAutoSync;
-    wAutoSyncCheck.onchange = () => {
-      this.settings.widgetAutoSync = wAutoSyncCheck.checked;
-    };
-
+    const wAutoSyncSwitchLabel = document.createElement("label"); wAutoSyncSwitchLabel.classList.add("sc-switch");
+    const wAutoSyncCheck = document.createElement("input"); wAutoSyncCheck.type = "checkbox"; wAutoSyncCheck.checked = this.settings.widgetAutoSync;
+    wAutoSyncCheck.onchange = () => { this.settings.widgetAutoSync = wAutoSyncCheck.checked; };
     wAutoSyncSwitchLabel.appendChild(wAutoSyncCheck);
-    const wAutoSyncSlider = document.createElement("span");
-    wAutoSyncSlider.classList.add("sc-slider");
-    wAutoSyncSwitchLabel.appendChild(wAutoSyncSlider);
-    wAutoSyncToggle.appendChild(wAutoSyncSwitchLabel);
+    const wAutoSyncSlider = document.createElement("span"); wAutoSyncSlider.classList.add("sc-slider");
+    wAutoSyncSwitchLabel.appendChild(wAutoSyncSlider); wAutoSyncToggle.appendChild(wAutoSyncSwitchLabel);
     widgetSection.appendChild(wAutoSyncToggle);
 
-    const wIntervalGroup = document.createElement("div");
-    wIntervalGroup.classList.add("sc-form-group");
-    wIntervalGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Sync Interval (minutes)</span><span class="sc-badge">Minimum 5 min</span></div>`;
-    const wIntervalInput = document.createElement("input");
-    wIntervalInput.type = "number";
-    wIntervalInput.classList.add("sc-input");
-    wIntervalInput.value = this.settings.widgetSyncInterval || 15;
-    wIntervalInput.min = "5";
-    wIntervalInput.oninput = () => {
-      this.settings.widgetSyncInterval = Math.max(5, parseInt(wIntervalInput.value) || 15);
-    };
-    wIntervalGroup.appendChild(wIntervalInput);
-    widgetSection.appendChild(wIntervalGroup);
+    const wIntervalGroup = document.createElement("div"); wIntervalGroup.classList.add("sc-form-group");
+    wIntervalGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Sync Interval (minutes)</span><span class="sc-badge">Min 1</span></div>`;
+    const wIntervalInput = document.createElement("input"); wIntervalInput.type = "number"; wIntervalInput.classList.add("sc-input");
+    wIntervalInput.value = this.settings.widgetSyncInterval || 15; wIntervalInput.min = "1";
+    wIntervalInput.oninput = () => { this.settings.widgetSyncInterval = Math.max(1, parseInt(wIntervalInput.value) || 15); };
+    wIntervalGroup.appendChild(wIntervalInput); widgetSection.appendChild(wIntervalGroup);
 
-    const wDynSection = document.createElement("div");
-    wDynSection.classList.add("sc-section");
-    wDynSection.style.marginTop = "20px";
-    wDynSection.style.background = "#111214";
-    wDynSection.innerHTML = `
-      <div class="sc-section-title">Dynamic Variables</div>
-      <div class="sc-field-desc" style="margin-bottom: 16px;">
-        You can use <code>{{MINUTES_SINCE_DATE}}</code> or <code>{{CALL_MINUTES}}</code> in your Widget JSON. The plugin will automatically replace them with real numbers before pushing to Discord.
+    // Tracked time - Target date
+    const wDynSection = document.createElement("div"); wDynSection.style.marginTop = "16px";
+    wDynSection.innerHTML = `<div style="font-size:13px;font-weight:600;color:#b5bac1;margin-bottom:10px;">⏱️ Tracked Time (for dynamic data fields)</div>`;
+    const wDynRow = document.createElement("div"); wDynRow.classList.add("sc-row");
+    const wBdGroup = document.createElement("div"); wBdGroup.classList.add("sc-form-group");
+    wBdGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Life Start Date</span></div>`;
+    const wBdInput = document.createElement("input"); wBdInput.type = "datetime-local"; wBdInput.classList.add("sc-input");
+    wBdInput.value = this.settings.targetDate || "";
+    wBdInput.onchange = () => { this.settings.targetDate = wBdInput.value; };
+    wBdGroup.appendChild(wBdInput); wDynRow.appendChild(wBdGroup);
+    const wCallGroup = document.createElement("div"); wCallGroup.classList.add("sc-form-group");
+    wCallGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Discord Call Minutes</span></div>`;
+    const wCallContent = document.createElement("div"); wCallContent.style.cssText = "display:flex;gap:8px;align-items:center;";
+    const wCallMinDisplay = document.createElement("div"); wCallMinDisplay.id = "sc-call-min-display";
+    wCallMinDisplay.style.cssText = "color:#dbdee1;font-size:13px;min-width:60px;"; wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " min";
+    const wCallResetBtn = document.createElement("button"); wCallResetBtn.classList.add("sc-btn", "sc-btn-danger"); wCallResetBtn.style.cssText = "padding:6px 12px;white-space:nowrap;";
+    wCallResetBtn.textContent = "Reset";
+    wCallResetBtn.onclick = () => { this.settings.totalCallMinutes = 0; this.saveSettings(); wCallMinDisplay.textContent = "0 min"; BdApi.UI.showToast("Call minutes reset!", { type: "info" }); };
+    wCallContent.appendChild(wCallMinDisplay); wCallContent.appendChild(wCallResetBtn);
+    wCallGroup.appendChild(wCallContent); wDynRow.appendChild(wCallGroup);
+    wDynSection.appendChild(wDynRow); widgetSection.appendChild(wDynSection);
+
+
+    // === CUSTOM VARIABLES SECTION (STANDALONE) ===
+    const customVarsSection = document.createElement("div");
+    customVarsSection.classList.add("sc-section");
+    customVarsSection.style.marginTop = "20px";
+    customVarsSection.innerHTML = `
+      <div class="sc-section-title">📜 Custom Scripts & Variables</div>
+      <div class="sc-tutorial-box">
+        <div class="sc-tutorial-title">Menedżer własnych skryptów i zapytań API</div>
+        Tutaj możesz tworzyć własne zmienne. Dowolna zmienna dodana w tej sekcji automatycznie pojawi się w edytorze widgetów jako źródło danych.
       </div>
     `;
 
-    const wDynRow = document.createElement("div");
-    wDynRow.classList.add("sc-row");
+    const cvHeader = document.createElement("div");
+    cvHeader.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;margin-top:10px;";
+    cvHeader.innerHTML = `<div style="font-size:13px;font-weight:700;color:#f2f3f5;">Zdefiniowane Zmienne</div>`;
 
-    const wBdGroup = document.createElement("div");
-    wBdGroup.classList.add("sc-form-group");
-    wBdGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Target Date (For {{MINUTES_SINCE_DATE}})</span></div>`;
-    const wBdInput = document.createElement("input");
-    wBdInput.type = "datetime-local";
-    wBdInput.classList.add("sc-input");
-    wBdInput.value = this.settings.targetDate || "2000-01-01T12:00";
-    wBdInput.onchange = () => { this.settings.targetDate = wBdInput.value; };
-    wBdGroup.appendChild(wBdInput);
-    wDynRow.appendChild(wBdGroup);
-
-    const wCallGroup = document.createElement("div");
-    wCallGroup.classList.add("sc-form-group");
-    wCallGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Voice Call Tracker</span></div>`;
-    
-    const wCallContent = document.createElement("div");
-    wCallContent.style.display = "flex";
-    wCallContent.style.alignItems = "center";
-    wCallContent.style.gap = "12px";
-
-    const wCallMinDisplay = document.createElement("div");
-    wCallMinDisplay.id = "sc-call-min-display";
-    wCallMinDisplay.style.color = "#dbdee1";
-    wCallMinDisplay.style.fontSize = "14px";
-    wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " minutes tracked";
-    wCallContent.appendChild(wCallMinDisplay);
-
-    const wCallResetBtn = document.createElement("button");
-    wCallResetBtn.classList.add("sc-btn", "sc-btn-danger", "sc-btn-sm");
-    wCallResetBtn.textContent = "Reset";
-    wCallResetBtn.onclick = () => {
-      this.settings.totalCallMinutes = 0;
+    const addCvBtn = document.createElement("button");
+    addCvBtn.classList.add("sc-btn", "sc-btn-secondary", "sc-btn-sm");
+    addCvBtn.style.padding = "4px 10px";
+    addCvBtn.style.fontSize = "11px";
+    addCvBtn.textContent = "+ Add Variable";
+    addCvBtn.onclick = (e) => {
+      e.preventDefault();
+      this.settings.customVariables = this.settings.customVariables || [];
+      this.settings.customVariables.push({ name: "my_var", type: "static", code: "Hello", jsonPath: "" });
       this.saveSettings();
-      wCallMinDisplay.textContent = "0 minutes tracked";
-      BdApi.UI.showToast("Voice Call Minutes reset to 0", { type: "info" });
+      renderCustomVars();
+      if (this.settings.widgetSurfaces) {
+        this.renderWidgetEditor(editorBody, this.currentResolvedAssets || []);
+      }
     };
-    wCallContent.appendChild(wCallResetBtn);
+    cvHeader.appendChild(addCvBtn);
+    customVarsSection.appendChild(cvHeader);
 
-    wCallGroup.appendChild(wCallContent);
-    wDynRow.appendChild(wCallGroup);
+    const cvContainer = document.createElement("div");
+    cvContainer.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+    customVarsSection.appendChild(cvContainer);
 
-    wDynSection.appendChild(wDynRow);
-    widgetSection.appendChild(wDynSection);
+    const renderCustomVars = () => {
+      cvContainer.innerHTML = "";
+      const vars = this.settings.customVariables || [];
+      if (vars.length === 0) {
+        cvContainer.innerHTML = `<div style="text-align:center;font-size:12px;opacity:.4;padding:10px 0;">Brak własnych zmiennych. Kliknij "+ Add Variable" aby stworzyć pierwszą.</div>`;
+        return;
+      }
+      vars.forEach((v, idx) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;flex-direction:column;gap:8px;background:rgba(0,0,0,0.18);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);margin-bottom:6px;";
 
-    const wPushBtn = document.createElement("button");
-    wPushBtn.classList.add("sc-btn", "sc-btn-primary");
-    wPushBtn.style.marginTop = "12px";
-    wPushBtn.style.width = "100%";
-    wPushBtn.textContent = "Push Widget to Profile";
-    wPushBtn.onclick = () => {
-      this.pushWidget();
+        const topRow = document.createElement("div");
+        topRow.style.cssText = "display:flex;gap:12px;align-items:flex-end;";
+
+        // Name group
+        const nameGroup = document.createElement("div");
+        nameGroup.style.cssText = "flex:1;display:flex;flex-direction:column;gap:4px;";
+        nameGroup.innerHTML = `<span style="font-size:11px;font-weight:600;color:#949ba4;">Nazwa zmiennej</span>`;
+        const nameInput = document.createElement("input");
+        nameInput.type = "text"; nameInput.classList.add("sc-input");
+        nameInput.style.cssText = "margin:0;padding:6px 10px;font-size:12px;";
+        nameInput.value = v.name || "";
+        nameInput.placeholder = "np. moja_zmienna";
+        nameInput.oninput = () => {
+          v.name = nameInput.value.trim().replace(/[^a-zA-Z0-9_]/g, "");
+          this.saveSettings();
+          if (this.settings.widgetSurfaces) {
+            this.renderWidgetEditor(editorBody, this.currentResolvedAssets || []);
+          }
+        };
+        nameGroup.appendChild(nameInput);
+        topRow.appendChild(nameGroup);
+
+        // Type group
+        const typeGroup = document.createElement("div");
+        typeGroup.style.cssText = "width:150px;display:flex;flex-direction:column;gap:4px;";
+        typeGroup.innerHTML = `<span style="font-size:11px;font-weight:600;color:#949ba4;">Typ źródła</span>`;
+        const typeSel = document.createElement("select");
+        typeSel.classList.add("sc-input");
+        typeSel.style.cssText = "margin:0;padding:5px 10px;font-size:12px;cursor:pointer;";
+        [
+          { value: "static", label: "Static Text" },
+          { value: "js", label: "JavaScript Code" },
+          { value: "url", label: "Fetch JSON URL" }
+        ].forEach(opt => {
+          const o = document.createElement("option");
+          o.value = opt.value; o.textContent = opt.label;
+          if (v.type === opt.value) o.selected = true;
+          typeSel.appendChild(o);
+        });
+        typeSel.onchange = () => {
+          v.type = typeSel.value;
+          this.saveSettings();
+          renderCustomVars();
+          if (this.settings.widgetSurfaces) {
+            this.renderWidgetEditor(editorBody, this.currentResolvedAssets || []);
+          }
+        };
+        typeGroup.appendChild(typeSel);
+        topRow.appendChild(typeGroup);
+
+        // Remove button
+        const rmBtn = document.createElement("button");
+        rmBtn.classList.add("sc-btn", "sc-btn-danger");
+        rmBtn.style.cssText = "padding:6px 12px;font-size:12px;height:32px;align-self:flex-end;margin-bottom:1px;";
+        rmBtn.textContent = "Remove";
+        rmBtn.onclick = (e) => {
+          e.preventDefault();
+          this.settings.customVariables.splice(idx, 1);
+          this.saveSettings();
+          renderCustomVars();
+          if (this.settings.widgetSurfaces) {
+            this.renderWidgetEditor(editorBody, this.currentResolvedAssets || []);
+          }
+        };
+        topRow.appendChild(rmBtn);
+        row.appendChild(topRow);
+
+        // Detail Row (Code/URL input)
+        const detailRow = document.createElement("div");
+        detailRow.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+
+        const codeLabel = document.createElement("span");
+        codeLabel.style.cssText = "font-size:11px;font-weight:600;color:#949ba4;";
+        if (v.type === "static") {
+          codeLabel.textContent = "Stała Wartość Tekstowa";
+        } else if (v.type === "js") {
+          codeLabel.textContent = "Skrypt JavaScript (musi zwracać wartość)";
+        } else if (v.type === "url") {
+          codeLabel.textContent = "Adres URL zapytania API (JSON)";
+        }
+        detailRow.appendChild(codeLabel);
+
+        const codeInput = document.createElement("textarea");
+        codeInput.classList.add("sc-textarea");
+        codeInput.style.cssText = "font-family:monospace;font-size:11px;min-height:50px;padding:8px;margin:0;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.05);border-radius:6px;";
+        codeInput.value = v.code || "";
+        if (v.type === "static") {
+          codeInput.placeholder = "Wpisz statyczny tekst...";
+        } else if (v.type === "js") {
+          codeInput.placeholder = "np. return BdApi.Webpack.getStore('UserStore').getCurrentUser().username;";
+        } else if (v.type === "url") {
+          codeInput.placeholder = "np. https://api.myip.com lub inny JSON API URL...";
+        }
+        codeInput.oninput = () => { v.code = codeInput.value; this.saveSettings(); };
+        detailRow.appendChild(codeInput);
+
+        if (v.type === "url") {
+          const jpLabel = document.createElement("span");
+          jpLabel.style.cssText = "font-size:11px;font-weight:600;color:#949ba4;margin-top:2px;";
+          jpLabel.textContent = "Ścieżka JSONPath do wartości (opcjonalnie)";
+          detailRow.appendChild(jpLabel);
+
+          const jpInput = document.createElement("input");
+          jpInput.type = "text"; jpInput.classList.add("sc-input");
+          jpInput.style.cssText = "margin:0;padding:6px 10px;font-size:11px;";
+          jpInput.value = v.jsonPath || "";
+          jpInput.placeholder = "np. ip lub dane.kraj.nazwa (puste wyśle cały obiekt JSON)";
+          jpInput.oninput = () => { jpInput.value = jpInput.value.trim(); v.jsonPath = jpInput.value; this.saveSettings(); };
+          detailRow.appendChild(jpInput);
+        }
+
+        row.appendChild(detailRow);
+        cvContainer.appendChild(row);
+      });
     };
+
+    renderCustomVars();
+
+    // === DYNAMIC WIDGET EDITOR ===
+    const wEditorSection = document.createElement("div"); wEditorSection.style.marginTop = "20px";
+    const editorHeader = document.createElement("div"); editorHeader.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;";
+    editorHeader.innerHTML = `<div style="font-size:14px;font-weight:700;color:#f2f3f5;">🖊️ Widget Layout Editor</div>`;
+    const loadEditorBtn = document.createElement("button"); loadEditorBtn.classList.add("sc-btn", "sc-btn-primary"); loadEditorBtn.style.cssText = "padding:6px 14px;font-size:12px;";
+    loadEditorBtn.textContent = "⟳ Load from Discord";
+    loadEditorBtn.onclick = () => {
+      this.settings.widgetAppId = wAppInput.value;
+      this.settings.widgetConfigId = wConfigInput.value;
+      this.saveSettings();
+      if (!this.settings.widgetAppId || !this.settings.widgetConfigId) {
+        BdApi.UI.showToast("Uzupelnij App ID i Config ID!", { type: "error" }); return;
+      }
+      this.loadWidgetEditorInto(editorBody);
+    };
+    editorHeader.appendChild(loadEditorBtn); wEditorSection.appendChild(editorHeader);
+    const editorBody = document.createElement("div"); editorBody.style.cssText = "background:rgba(0,0,0,.2);border-radius:10px;padding:16px;min-height:60px;";
+    editorBody.innerHTML = `<div style="text-align:center;opacity:.45;font-size:13px;padding:16px 0;">Kliknij "⟳ Load from Discord" aby zobaczyc i edytowac layout widgetu</div>`;
+    wEditorSection.appendChild(editorBody); widgetSection.appendChild(wEditorSection);
+ 
+    // === ACTION BUTTONS ===
+    const wSaveBtn = document.createElement("button"); wSaveBtn.classList.add("sc-btn"); 
+    wSaveBtn.style.cssText = "margin-top:14px;width:100%;background:linear-gradient(135deg,#5865f2,#7289da);color:#fff;font-weight:700;font-size:14px;padding:12px;border-radius:8px;border:none;cursor:pointer;";
+    wSaveBtn.textContent = "💾 Save Layout to Portal + Push Live Data";
+    wSaveBtn.onclick = () => { this.saveSettings(); this.pushWidgetConfig(); };
+    widgetSection.appendChild(wSaveBtn);
+ 
+    const wPushBtn = document.createElement("button"); wPushBtn.classList.add("sc-btn", "sc-btn-primary"); wPushBtn.style.cssText = "margin-top:8px;width:100%;";
+    wPushBtn.textContent = "↑ Push Live Data Only (fast)";
+    wPushBtn.onclick = () => { this.saveSettings(); this.pushWidget(); };
     widgetSection.appendChild(wPushBtn);
-
+ 
+    const wAddBtn = document.createElement("button"); wAddBtn.classList.add("sc-btn"); wAddBtn.style.cssText = "margin-top:8px;width:100%;background:#43b581;color:white;border:none;cursor:pointer;border-radius:6px;padding:8px;font-weight:600;";
+    wAddBtn.textContent = "🔗 Force Add Widget to Profile";
+    wAddBtn.onclick = async () => {
+      try {
+        const appId = this.settings.widgetAppId;
+        if (!appId) { BdApi.UI.showToast("App ID nie ustawiony!", {type:"error"}); return; }
+        const AuthStore = BdApi.Webpack.getStore("AuthenticationStore");
+        const UserStore = BdApi.Webpack.getStore("UserStore");
+        const token = AuthStore?.getToken();
+        const id = UserStore.getCurrentUser().id;
+        let res = await BdApi.Net.fetch("https://discord.com/api/v9/users/" + id + "/profile", { headers: { "Authorization": token } });
+        let data = await res.json(); let widgets = data.widgets || [];
+        if (widgets.map(x=>x.data?.application_id).includes(appId)) { BdApi.UI.showToast("Widget juz przypietu!", {type:"warning"}); return; }
+        widgets.unshift({"data": {"type": "application", "application_id": appId}});
+        let put = await BdApi.Net.fetch("https://discord.com/api/v9/users/@me/widgets", { method:"PUT", headers:{"Authorization":token,"Content-Type":"application/json"}, body: JSON.stringify({widgets}) });
+        if (!put.ok) { BdApi.UI.showToast("Blad: " + await put.text(), {type:"error"}); return; }
+        BdApi.UI.showToast("SUKCES! Widget przypiety! Odswierz (Ctrl+R)", {type:"success"});
+      } catch(e) { BdApi.UI.showToast("Blad dodawania widgetu", {type:"error"}); console.error(e); }
+    };
+    widgetSection.appendChild(wAddBtn);
+ 
     panel.appendChild(widgetSection);
+    panel.appendChild(customVarsSection);
 
     const actions = document.createElement("div");
     actions.classList.add("sc-actions");
@@ -1444,11 +2189,10 @@ module.exports = class Statuseditor {
       appIdInput.value = this.settings.applicationId || "";
       wAppInput.value = this.settings.widgetAppId || "";
       wTokenInput.value = this.settings.widgetBotToken || "";
-      wJsonInput.value = this.settings.widgetJson || "";
       wAutoSyncCheck.checked = this.settings.widgetAutoSync;
       wIntervalInput.value = this.settings.widgetSyncInterval.toString();
-      wBdInput.value = this.settings.targetDate || "2000-01-01T12:00";
-      wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " minutes tracked";
+      wBdInput.value = this.settings.targetDate || "";
+      wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " min";
 
       renderSteps();
 
