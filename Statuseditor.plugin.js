@@ -222,13 +222,19 @@ module.exports = class Statuseditor {
     try {
       const HTTP = this.getHTTPModule();
       if (HTTP && typeof HTTP.patch === "function") {
-        HTTP.patch({
-          url: "/users/@me/settings",
-          body: { status: status }
-        }).then(res => {
+        HTTP.patch("/users/@me/settings", { status: status }).then(res => {
           console.log(`Statuseditor: Set status to "${status}" via API PATCH`, res);
         }).catch(err => {
-          console.warn("Statuseditor: API PATCH failed:", err);
+          console.warn("Statuseditor: API PATCH (url, body) failed, trying with options wrapper:", err);
+          try {
+            HTTP.patch("/users/@me/settings", { body: { status: status } }).then(res => {
+              console.log(`Statuseditor: Set status to "${status}" via API PATCH (options)`, res);
+            }).catch(e => {
+              console.warn("Statuseditor: API PATCH (url, options) failed:", e);
+            });
+          } catch (e2) {
+            console.warn("Statuseditor: API PATCH (url, options) throw:", e2);
+          }
         });
         return;
       }
