@@ -90,6 +90,16 @@ module.exports = class Statuseditor {
 
     this.startCallTracking();
 
+    // Subscribe to voice channel and Spotify activity changes for instant widget updates
+    const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
+    if (FluxDispatcher) {
+      this.handleVoiceChannelSelectBound = this.handleVoiceChannelSelect.bind(this);
+      this.handleLocalActivityUpdateBound = this.handleLocalActivityUpdate.bind(this);
+      
+      FluxDispatcher.subscribe("VOICE_CHANNEL_SELECT", this.handleVoiceChannelSelectBound);
+      FluxDispatcher.subscribe("LOCAL_ACTIVITY_UPDATE", this.handleLocalActivityUpdateBound);
+    }
+
     // Expose instance globally for custom scripts
     window.statusEditorInstance = this;
 
@@ -101,11 +111,76 @@ module.exports = class Statuseditor {
     this.stopWidgetSync();
     this.stopCallTracking();
 
+    // Unsubscribe from event listeners
+    const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
+    if (FluxDispatcher) {
+      if (this.handleVoiceChannelSelectBound) {
+        FluxDispatcher.unsubscribe("VOICE_CHANNEL_SELECT", this.handleVoiceChannelSelectBound);
+      }
+      if (this.handleLocalActivityUpdateBound) {
+        FluxDispatcher.unsubscribe("LOCAL_ACTIVITY_UPDATE", this.handleLocalActivityUpdateBound);
+      }
+    }
+
+    if (this.voiceTimeout) clearTimeout(this.voiceTimeout);
+    if (this.spotifyTimeout) clearTimeout(this.spotifyTimeout);
+
     // Clean up global instance
     delete window.statusEditorInstance;
 
     BdApi.Patcher.unpatchAll("Statuseditor");
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
+  }
+
+  handleVoiceChannelSelect() {
+    if (this.voiceTimeout) clearTimeout(this.voiceTimeout);
+    this.voiceTimeout = setTimeout(() => this.pushWidget(true), 1500);
+  }
+
+  handleLocalActivityUpdate() {
+    const LocalActivityStore = BdApi.Webpack.getStore("LocalActivityStore");
+    const activeSpotify = (LocalActivityStore?.getActivities() || []).find(a => a.name === "Spotify");
+    const currentId = activeSpotify ? activeSpotify.sync_id : null;
+    
+    if (currentId !== this.lastSongId) {
+      this.lastSongId = currentId;
+      if (this.spotifyTimeout) clearTimeout(this.spotifyTimeout);
+      this.spotifyTimeout = setTimeout(() => this.pushWidget(true), 1500);
+    }
+  }
+
+  getVoiceStatus() {
+    try {
+      const SelectedChannelStore = BdApi.Webpack.getStore("SelectedChannelStore");
+      const ChannelStore = BdApi.Webpack.getStore("ChannelStore");
+      const GuildStore = BdApi.Webpack.getStore("GuildStore");
+
+      const voiceChannelId = SelectedChannelStore?.getVoiceChannelId();
+      if (!voiceChannelId) return "No Call";
+
+      const channel = ChannelStore?.getChannel(voiceChannelId);
+      if (!channel) return "In Call";
+
+      const guild = GuildStore?.getGuild(channel.guild_id);
+      return `📞 ${channel.name}` + (guild ? ` (${guild.name})` : " (DM)");
+    } catch (e) {
+      console.error("Statuseditor: Error getting voice status:", e);
+      return "Voice Error";
+    }
+  }
+
+  getSpotifySong() {
+    try {
+      const LocalActivityStore = BdApi.Webpack.getStore("LocalActivityStore");
+      const spotify = (LocalActivityStore?.getActivities() || []).find(a => a.name === "Spotify");
+      if (!spotify) return "Not playing";
+      
+      this.lastSongId = spotify.sync_id;
+      return `🎧 ${spotify.details} - ${spotify.state}`;
+    } catch (e) {
+      console.error("Statuseditor: Error getting Spotify song:", e);
+      return "Spotify Error";
+    }
   }
 
   patch() {
@@ -613,6 +688,8 @@ module.exports = class Statuseditor {
         if (name === "minutes_since" || name === "minutes_since_formatted") return minsSince;
         if (name === "discord_wasted" || name === "discord_wasted_formatted") return callMins;
         if (name === "lol_stats") return await this.getLolStats();
+        if (name === "In_Call") return this.getVoiceStatus();
+        if (name === "Spotify_song") return this.getSpotifySong();
 
         const cv = (this.settings.customVariables || []).find(v => v.name === name);
         if (!cv) return "";
@@ -930,7 +1007,9 @@ module.exports = class Statuseditor {
       { value: "minutes_since", label: "Czas zycia (Liczba minut)" },
       { value: "discord_wasted_formatted", label: "Czas Discord (Formatowany: 1day 7h)" },
       { value: "discord_wasted", label: "Czas Discord (Liczba minut)" },
-      { value: "lol_stats", label: "League of Legends Live Companion 🎮" }
+      { value: "lol_stats", label: "League of Legends Live Companion 🎮" },
+      { value: "In_Call", label: "Voice Call Status 📞" },
+      { value: "Spotify_song", label: "Spotify Current Song 🎧" }
     ];
 
     (this.settings.customVariables || []).forEach(v => {
