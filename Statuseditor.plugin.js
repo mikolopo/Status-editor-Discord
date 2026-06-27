@@ -220,26 +220,29 @@ module.exports = class Statuseditor {
     }
 
     try {
-      const HTTP = this.getHTTPModule();
-      if (HTTP && typeof HTTP.patch === "function") {
-        HTTP.patch("/api/v9/users/@me/settings", { status: status }).then(res => {
-          console.log(`Statuseditor: Set status to "${status}" via API PATCH`, res);
-        }).catch(err => {
-          console.warn("Statuseditor: API PATCH (url, body) failed, trying with options wrapper:", err);
-          try {
-            HTTP.patch("/api/v9/users/@me/settings", { body: { status: status } }).then(res => {
-              console.log(`Statuseditor: Set status to "${status}" via API PATCH (options)`, res);
-            }).catch(e => {
-              console.warn("Statuseditor: API PATCH (url, options) failed:", e);
-            });
-          } catch (e2) {
-            console.warn("Statuseditor: API PATCH (url, options) throw:", e2);
+      const TokenStore = BdApi.Webpack.getStore("TokenStore");
+      const token = TokenStore?.getToken();
+      if (token) {
+        window.fetch("/api/v9/users/@me/settings", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": token
+          },
+          body: JSON.stringify({ status: status })
+        }).then(async res => {
+          if (res.ok) {
+            console.log(`Statuseditor: Set status to "${status}" via fetch`);
+          } else {
+            console.warn(`Statuseditor: fetch failed with status ${res.status}:`, await res.text());
           }
+        }).catch(err => {
+          console.warn("Statuseditor: fetch request failed:", err);
         });
         return;
       }
     } catch (e) {
-      console.warn("Statuseditor: Method 3 (API PATCH) failed:", e);
+      console.warn("Statuseditor: Method 3 (fetch PATCH) failed:", e);
     }
 
     try {
