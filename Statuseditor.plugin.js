@@ -188,6 +188,34 @@ module.exports = class Statuseditor {
     return null;
   }
 
+  getToken() {
+    let token = null;
+    try {
+      window.webpackChunkdiscord_app.push([[Symbol()], {}, o => {
+        for (let e of Object.values(o.c)) {
+          try {
+            if (!e.exports || e.exports === window) continue;
+            if (e.exports?.getToken) {
+              token = e.exports.getToken();
+              if (token) break;
+            }
+            for (let oKey in e.exports) {
+              if (e.exports?.[oKey]?.getToken && "IntlMessagesProxy" !== e.exports[oKey][Symbol.toStringTag]) {
+                token = e.exports[oKey].getToken();
+                if (token) break;
+              }
+            }
+          } catch {}
+          if (token) break;
+        }
+      }]);
+      window.webpackChunkdiscord_app.pop();
+    } catch (err) {
+      console.error("Statuseditor: Token extraction error:", err);
+    }
+    return token;
+  }
+
   updatePresenceStatus(status) {
     if (!status || status === "streaming") return;
 
@@ -220,8 +248,7 @@ module.exports = class Statuseditor {
     }
 
     try {
-      const TokenStore = BdApi.Webpack.getStore("TokenStore");
-      const token = TokenStore?.getToken();
+      const token = this.getToken();
       if (token) {
         window.fetch("/api/v9/users/@me/settings", {
           method: "PATCH",
