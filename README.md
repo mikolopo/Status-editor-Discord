@@ -1,6 +1,6 @@
 # Statuseditor (v2.0.0)
 
-**Statuseditor** is a powerful BetterDiscord plugin that allows you to fully customize your Discord presence and manage your profile widgets through an interactive interface.
+**Statuseditor** is a BetterDiscord plugin that allows you to fully customize your Discord presence and manage your profile widgets through an interactive interface.
 
 ![Statuseditor Profile Widget Preview](preview.png)
 
@@ -11,11 +11,11 @@
 - **Presence Controls**: Easily switch between Online, Idle, Do Not Disturb, Invisible, and Streaming presets.
 - **Activity Customizer**: Change your activity type (Playing, Listening, Watching, Competing), name, details, state, and application ID.
 - **Presence Cycling**: Cycle through multiple custom text lines (details/state) at a specified interval.
-- **Profile Widget Editor**: Dynamically configure your Discord Developer Profile Widget (surfaces like *Widget Top*, *Widget Bottom*, *Mini Profile*, etc.) directly from Discord settings.
+- **Profile Widget Editor**: Configure your Discord Developer Profile Widget (surfaces like *Widget Top*, *Widget Bottom*, *Mini Profile*, etc.) directly from Discord settings.
 - **Built-in System Variables**:
   - `lol_stats` (**League of Legends Live Companion**): Automatically tracks your League of Legends game state (Lobby, Queue, Champ Select) by reading local Riot client logs, and fetches your champion, KDA, and game time during matches.
-  - `In_Call` (**Voice Channel Tracker**): Displays your current voice channel status in English (e.g., `📞 General (My Server)` or `No Call`). Updates instantly when you join or leave a call.
-  - `Spotify_song` (**Spotify Tracker**): Displays the current playing song from Spotify (e.g., `🎧 Song Title - Artist` or `Not playing`). Updates instantly when the track changes.
+  - `In_Call` (**Voice Channel Tracker**): Displays your current voice channel status in English (e.g., `General (My Server)` or `No Call`). Updates instantly when you join or leave a call.
+  - `Spotify_song` (**Spotify Tracker**): Displays the current playing song from Spotify (e.g., `Song Title - Artist` or `Not playing`). Updates instantly when the track changes.
   - `minutes_since_formatted` / `minutes_since`: Calculates the time elapsed since a custom target date (e.g. your age).
   - `discord_wasted`: Tracks your total time spent in Discord voice channels.
 
@@ -40,12 +40,12 @@ Useful for reading local files, executing local system checks, or interacting wi
   ```javascript
   try {
     const res = await BdApi.Net.fetch("http://127.0.0.1:8085/data.json");
-    if (!res.ok) return "LHM Offline 🖥️";
+    if (!res.ok) return "LHM Offline";
     const data = await res.json();
     // parse and find temperature sensors in data...
-    return `💻 CPU: ${cpuTemp}°C | 🎮 GPU: ${gpuTemp}°C`;
+    return `CPU: ${cpuTemp}°C | GPU: ${gpuTemp}°C`;
   } catch (e) {
-    return "PC Stats: Offline 🖥️";
+    return "PC Stats: Offline";
   }
   ```
 
@@ -86,6 +86,18 @@ Once configured, you can load and edit your widget layouts directly in the plugi
    - **Assets**: Select uploaded graphic assets for image fields.
 4. Click **Save to Portal** to upload your design to the Discord Developer Portal.
 5. Enable **Auto Sync Widget** to automatically push live updates to your profile.
+
+> [!IMPORTANT]
+> **Important Note:** This plugin's built-in widget editor is designed for quick adjustments and does not support all advanced layout features. For complex designs, adding custom components, or managing advanced settings, it is highly recommended to use the official [Discord Developer Portal](https://discord.com/developers/applications) directly.
+
+---
+
+## How the League of Legends Live Companion Works
+
+The `lol_stats` variable is completely secure and operates locally on your machine:
+- **Zero-network LCU tracking**: It reads the local Riot Games client logs (`C:/Riot Games/League of Legends/Logs/LeagueClient Logs`) to instantly detect your game state (Lobby, Queue, Champ Select, etc.). It does not make local network requests to the League Client Ux, avoiding SSL certificate issues and process sandboxing blocks.
+- **Live Match Stats**: During a live match (`InProgress`), it queries the local game client API on port 2999 via HTTPS (using a built-in self-signed certificate bypass) to retrieve your active champion, KDA, and elapsed match time.
+- **Automatic Refresh**: Updates are throttled to match your configured widget sync interval to prevent Discord API rate limits (429 errors).
 
 ---
 
