@@ -1,7 +1,7 @@
 /**
  * @name Statuseditor
  * @version 1.0.0
- * @description A production-ready status and activity manager with an interactive configuration UI, status presets (online, dnd, offline, fake streaming), text cycling, and inline guides.
+ * @description Discord status and custom activity editor.
  * @author Mikolopo
  * @website https://github.com/mikolopo/Status-editor-Discord
  */
@@ -10,11 +10,10 @@ module.exports = class Statuseditor {
   constructor(meta) {
     this.meta = meta;
 
-    // Default values
     this.defaultSettings = {
-      status: "streaming", // online, idle, dnd, invisible, streaming
+      status: "streaming",
       activityName: "Streaming",
-      activityType: 1, // 0=Playing, 1=Streaming, 2=Listening, 3=Watching, 5=Competing
+      activityType: 1,
       streamUrl: "https://www.twitch.tv/discord",
       details: "Just vibing",
       state: "In the zone",
@@ -26,7 +25,6 @@ module.exports = class Statuseditor {
       enableCustomActivity: true
     };
 
-    // Load saved settings or fallback to defaults
     const saved = BdApi.Data.load("Statuseditor", "settings");
     this.settings = saved ? { ...this.defaultSettings, ...saved } : { ...this.defaultSettings };
 
@@ -41,7 +39,6 @@ module.exports = class Statuseditor {
   start() {
     this.patch();
 
-    // Set standard presence status
     if (this.settings.status !== "streaming") {
       this.updatePresenceStatus(this.settings.status);
     } else {
@@ -72,7 +69,6 @@ module.exports = class Statuseditor {
       return;
     }
 
-    // Patch getActivities
     BdApi.Patcher.after("Statuseditor", LocalActivityStore, "getActivities", (_, __, ret) => {
       const act = this.buildActivity();
       const filtered = (ret || []).filter(a => a.name !== this.settings.activityName && a.name !== "Streaming");
@@ -80,7 +76,6 @@ module.exports = class Statuseditor {
       return [...filtered, act];
     });
 
-    // Patch getAllActivities
     if (LocalActivityStore.getAllActivities && userId) {
       BdApi.Patcher.after("Statuseditor", LocalActivityStore, "getAllActivities", (_, __, ret) => {
         const act = this.buildActivity();
@@ -100,7 +95,6 @@ module.exports = class Statuseditor {
     try {
       const isStreaming = this.settings.status === "streaming";
 
-      // If we don't want a fake activity and it's not streaming, return null
       if (!isStreaming && !this.settings.enableCustomActivity) {
         return null;
       }
@@ -115,12 +109,10 @@ module.exports = class Statuseditor {
         activity.application_id = this.settings.applicationId;
       }
 
-      // Handle stream URL (only streaming activity type requires it)
       if (activity.type === 1) {
         activity.url = this.settings.streamUrl || "https://www.twitch.tv/discord";
       }
 
-      // Handle details with cycling
       const detailsList = this.settings.detailsRotation || [];
       if (this.settings.cycleEnabled && detailsList.length > 0) {
         activity.details = detailsList[this.cycleIndex % detailsList.length] || "";
@@ -128,7 +120,6 @@ module.exports = class Statuseditor {
         activity.details = this.settings.details || "";
       }
 
-      // Handle state with cycling
       const stateList = this.settings.stateRotation || [];
       if (this.settings.cycleEnabled && stateList.length > 0) {
         activity.state = stateList[this.cycleIndex % stateList.length] || "";
@@ -176,7 +167,6 @@ module.exports = class Statuseditor {
   updatePresenceStatus(status) {
     if (!status || status === "streaming") return;
 
-    // Method 1: StatusActionCreators.updateStatus
     try {
       const updateStatus = this.getModuleFunction(
         (m) => m?.updateStatus || m?.default?.updateStatus,
@@ -191,7 +181,6 @@ module.exports = class Statuseditor {
       console.warn("Statuseditor: Method 1 (updateStatus) failed:", e);
     }
 
-    // Method 2: UserSettingsProtoActionCreators.updateRemoteProfileSettings
     try {
       const updateRemoteProfileSettings = this.getModuleFunction(
         (m) => m?.updateRemoteProfileSettings || m?.default?.updateRemoteProfileSettings,
@@ -206,7 +195,6 @@ module.exports = class Statuseditor {
       console.warn("Statuseditor: Method 2 (updateRemoteProfileSettings) failed:", e);
     }
 
-    // Method 3: HTTP API PATCH /users/@me/settings
     try {
       const HTTPPatch = this.getModuleFunction(
         (m) => (m?.patch && m?.get) || (m?.default?.patch && m?.default?.get),
@@ -227,7 +215,6 @@ module.exports = class Statuseditor {
       console.warn("Statuseditor: Method 3 (API PATCH) failed:", e);
     }
 
-    // Method 4: Direct Flux dispatch
     try {
       const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
       if (FluxDispatcher) {
@@ -244,7 +231,6 @@ module.exports = class Statuseditor {
       console.error("Statuseditor: Method 4 (FluxDispatcher) failed:", e);
     }
 
-    // Method 5: Direct Flux dispatch legacy USER_SETTINGS_UPDATE
     try {
       const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
       if (FluxDispatcher) {
@@ -261,7 +247,7 @@ module.exports = class Statuseditor {
       console.error("Statuseditor: Method 5 (FluxDispatcher Legacy) failed:", e);
     }
 
-    BdApi.UI.showToast("Status Editor: Could not update presence status (API changed)", { type: "error" });
+    BdApi.UI.showToast("Status Editor: Could not update presence status", { type: "error" });
   }
 
   startCycle() {
@@ -285,7 +271,6 @@ module.exports = class Statuseditor {
   applySettings() {
     this.saveSettings();
 
-    // Stop & Restart to apply changes cleanly
     this.stopCycle();
     BdApi.Patcher.unpatchAll("Statuseditor");
 
@@ -300,7 +285,6 @@ module.exports = class Statuseditor {
     if (this.settings.cycleEnabled) {
       this.startCycle();
     } else {
-      // Trigger a final update to push standard static values
       const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
       FluxDispatcher?.dispatch({ type: "LOCAL_ACTIVITY_UPDATE", activity: null });
     }
@@ -310,7 +294,6 @@ module.exports = class Statuseditor {
     const panel = document.createElement("div");
     panel.classList.add("sc-panel");
 
-    // Dynamic Style Tag for aesthetics
     const style = document.createElement("style");
     style.textContent = `
       .sc-panel {
@@ -603,7 +586,6 @@ module.exports = class Statuseditor {
     `;
     panel.appendChild(style);
 
-    // Title / Header
     const header = document.createElement("div");
     header.classList.add("sc-header");
 
@@ -614,28 +596,26 @@ module.exports = class Statuseditor {
 
     const subtitle = document.createElement("p");
     subtitle.classList.add("sc-subtitle");
-    subtitle.textContent = "Manage your Discord presence, text rotation, and custom activities easily.";
+    subtitle.textContent = "Manage status and custom activities.";
     header.appendChild(subtitle);
 
     panel.appendChild(header);
 
-    // Quick Tutorial / Guide box
     const tutorialBox = document.createElement("div");
     tutorialBox.classList.add("sc-tutorial-box");
     tutorialBox.innerHTML = `
       <div class="sc-tutorial-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-        Status Settings Quick Guide
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></svg>
+        Status Settings Guide
       </div>
       <div>
-        • <strong>Purple Streaming</strong>: Overlays a purple badge on your profile. Requires a valid stream URL (YouTube or Twitch) to render properly.<br>
-        • <strong>Custom Activity</strong>: For Playing/Watching/Listening, check 'Enable Custom Presence Activity' and customize details/state.<br>
-        • <strong>Text Cycling</strong>: Add multiple items, one per line, in the details/state rotation boxes. Check 'Enable Text Cycling' and hit Apply to start rotating!
+        • <strong>Purple Streaming</strong>: Adds streaming activity to profile. Requires stream URL (Twitch/YouTube).<br>
+        • <strong>Custom Activity</strong>: For Playing/Watching/Listening, check 'Enable Custom Presence Activity' and set details/state.<br>
+        • <strong>Text Cycling</strong>: Add lines to details/state rotation boxes. Check 'Enable Text Cycling' and click Apply to start.
       </div>
     `;
     panel.appendChild(tutorialBox);
 
-    // Grid selector for Status Presets
     const presetSection = document.createElement("div");
     presetSection.classList.add("sc-section");
     presetSection.innerHTML = `<div class="sc-section-title">Presence Status Preset</div>`;
@@ -644,11 +624,11 @@ module.exports = class Statuseditor {
     grid.classList.add("sc-status-grid");
 
     const statuses = [
-      { id: "online", label: "Online", desc: "Green dot" },
-      { id: "idle", label: "Idle", desc: "Orange dot" },
-      { id: "dnd", label: "Do Not Disturb", desc: "Red dot" },
-      { id: "invisible", label: "Invisible", desc: "Gray dot" },
-      { id: "streaming", label: "Purple Streaming", desc: "Purple dot" }
+      { id: "online", label: "Online" },
+      { id: "idle", label: "Idle" },
+      { id: "dnd", label: "Do Not Disturb" },
+      { id: "invisible", label: "Invisible" },
+      { id: "streaming", label: "Purple Streaming" }
     ];
 
     statuses.forEach(st => {
@@ -672,15 +652,12 @@ module.exports = class Statuseditor {
         card.classList.add("selected");
         this.settings.status = st.id;
 
-        // Dynamic field toggling depending on status
         if (st.id === "streaming") {
           activitySection.style.display = "block";
           streamUrlGroup.style.display = "block";
         } else {
-          // If custom activity checkbox is checked, show it, else hide activity section
           if (customActivityCheck.checked) {
             activitySection.style.display = "block";
-            // Hide stream URL if the type is not Streaming
             if (activityTypeSelect.value === "1") {
               streamUrlGroup.style.display = "block";
             } else {
@@ -697,7 +674,6 @@ module.exports = class Statuseditor {
 
     presetSection.appendChild(grid);
 
-    // Checkbox to enable custom activity when NOT streaming
     const customActivityToggle = document.createElement("div");
     customActivityToggle.classList.add("sc-toggle-container");
 
@@ -731,21 +707,17 @@ module.exports = class Statuseditor {
 
     panel.appendChild(presetSection);
 
-    // Section for Activity Details
     const activitySection = document.createElement("div");
     activitySection.classList.add("sc-section");
     activitySection.innerHTML = `<div class="sc-section-title">Activity Configuration</div>`;
 
-    // Hide initially if standard status selected and custom activity disabled
     if (this.settings.status !== "streaming" && !this.settings.enableCustomActivity) {
       activitySection.style.display = "none";
     }
 
-    // Row 1: Activity Name and Activity Type
     const actRow = document.createElement("div");
     actRow.classList.add("sc-row");
 
-    // Activity Name
     const nameGroup = document.createElement("div");
     nameGroup.classList.add("sc-form-group");
     nameGroup.innerHTML = `
@@ -768,7 +740,6 @@ module.exports = class Statuseditor {
     nameGroup.appendChild(nameDesc);
     actRow.appendChild(nameGroup);
 
-    // Activity Type
     const typeGroup = document.createElement("div");
     typeGroup.classList.add("sc-form-group");
     typeGroup.innerHTML = `
@@ -811,7 +782,6 @@ module.exports = class Statuseditor {
 
     activitySection.appendChild(actRow);
 
-    // Stream URL Field
     const streamUrlGroup = document.createElement("div");
     streamUrlGroup.classList.add("sc-form-group");
     streamUrlGroup.innerHTML = `
@@ -834,15 +804,13 @@ module.exports = class Statuseditor {
     streamUrlGroup.appendChild(streamInput);
     const streamDesc = document.createElement("div");
     streamDesc.classList.add("sc-field-desc");
-    streamDesc.textContent = "Twitch or YouTube links only. Essential for triggering the streaming status.";
+    streamDesc.textContent = "Twitch/YouTube links only.";
     streamUrlGroup.appendChild(streamDesc);
     activitySection.appendChild(streamUrlGroup);
 
-    // Static details and state values
     const actFieldsRow = document.createElement("div");
     actFieldsRow.classList.add("sc-row");
 
-    // Static Details
     const detailsGroup = document.createElement("div");
     detailsGroup.classList.add("sc-form-group");
     detailsGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Static Details</span></div>`;
@@ -861,7 +829,6 @@ module.exports = class Statuseditor {
     detailsGroup.appendChild(detailsDesc);
     actFieldsRow.appendChild(detailsGroup);
 
-    // Static State
     const stateGroup = document.createElement("div");
     stateGroup.classList.add("sc-form-group");
     stateGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Static State</span></div>`;
@@ -880,7 +847,6 @@ module.exports = class Statuseditor {
     stateGroup.appendChild(stateDesc);
     actFieldsRow.appendChild(stateGroup);
 
-    // Application ID field
     const appIdGroup = document.createElement("div");
     appIdGroup.classList.add("sc-form-group");
     appIdGroup.style.marginTop = "16px";
@@ -900,19 +866,18 @@ module.exports = class Statuseditor {
     appIdGroup.appendChild(appIdInput);
     const appIdDesc = document.createElement("div");
     appIdDesc.classList.add("sc-field-desc");
-    appIdDesc.textContent = "Discord Developer Application Client ID. Leave empty for custom presence activity without app assets.";
+    appIdDesc.textContent = "Developer App Client ID. Leave empty for default custom presence.";
+    appIdGroup.appendChild(appIdInput);
     appIdGroup.appendChild(appIdDesc);
     activitySection.appendChild(appIdGroup);
 
     activitySection.appendChild(actFieldsRow);
     panel.appendChild(activitySection);
 
-    // Text Rotation Section
     const rotationSection = document.createElement("div");
     rotationSection.classList.add("sc-section");
     rotationSection.innerHTML = `<div class="sc-section-title">Text Cycling & Animation</div>`;
 
-    // Enable/Disable Cycle Toggle
     const cycleToggle = document.createElement("div");
     cycleToggle.classList.add("sc-toggle-container");
 
@@ -938,11 +903,9 @@ module.exports = class Statuseditor {
     cycleToggle.appendChild(cycleSwitchLabel);
     rotationSection.appendChild(cycleToggle);
 
-    // Details Rotation Textarea
     const rotRow = document.createElement("div");
     rotRow.classList.add("sc-row");
 
-    // Details rotation array box
     const rotDetailsGroup = document.createElement("div");
     rotDetailsGroup.classList.add("sc-form-group");
     rotDetailsGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Details Rotation List</span></div>`;
@@ -956,11 +919,10 @@ module.exports = class Statuseditor {
     rotDetailsGroup.appendChild(detailsRotArea);
     const rotDetailsDesc = document.createElement("div");
     rotDetailsDesc.classList.add("sc-field-desc");
-    rotDetailsDesc.textContent = "Enter entries line-by-line to cycle details.";
+    rotDetailsDesc.textContent = "Enter entries line-by-line.";
     rotDetailsGroup.appendChild(rotDetailsDesc);
     rotRow.appendChild(rotDetailsGroup);
 
-    // State rotation array box
     const rotStateGroup = document.createElement("div");
     rotStateGroup.classList.add("sc-form-group");
     rotStateGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">State Rotation List</span></div>`;
@@ -974,13 +936,12 @@ module.exports = class Statuseditor {
     rotStateGroup.appendChild(stateRotArea);
     const rotStateDesc = document.createElement("div");
     rotStateDesc.classList.add("sc-field-desc");
-    rotStateDesc.textContent = "Enter entries line-by-line to cycle states.";
+    rotStateDesc.textContent = "Enter entries line-by-line.";
     rotStateGroup.appendChild(rotStateDesc);
     rotRow.appendChild(rotStateGroup);
 
     rotationSection.appendChild(rotRow);
 
-    // Cycle Interval Number Field
     const intervalGroup = document.createElement("div");
     intervalGroup.classList.add("sc-form-group");
     intervalGroup.style.marginTop = "16px";
@@ -998,13 +959,12 @@ module.exports = class Statuseditor {
     intervalGroup.appendChild(intervalInput);
     const intervalDesc = document.createElement("div");
     intervalDesc.classList.add("sc-field-desc");
-    intervalDesc.textContent = "Time in milliseconds between cycles (1000 ms = 1s). Recommended: 5000ms+";
+    intervalDesc.textContent = "Time in milliseconds between cycles (Recommended: 5000ms+).";
     intervalGroup.appendChild(intervalDesc);
     rotationSection.appendChild(intervalGroup);
 
     panel.appendChild(rotationSection);
 
-    // Action Controls Panel
     const actions = document.createElement("div");
     actions.classList.add("sc-actions");
 
@@ -1015,7 +975,6 @@ module.exports = class Statuseditor {
       this.settings = { ...this.defaultSettings };
       this.applySettings();
 
-      // Update UI elements in response
       grid.querySelectorAll(".sc-status-card").forEach(c => {
         c.classList.remove("selected");
         if (c.classList.contains(this.settings.status)) {
@@ -1034,7 +993,6 @@ module.exports = class Statuseditor {
       intervalInput.value = this.settings.cycleInterval.toString();
       appIdInput.value = this.settings.applicationId || "";
 
-      // Show/Hide divs
       if (this.settings.status === "streaming" || customActivityCheck.checked) {
         activitySection.style.display = "block";
       } else {
@@ -1054,7 +1012,6 @@ module.exports = class Statuseditor {
     applyBtn.classList.add("sc-btn", "sc-btn-primary");
     applyBtn.textContent = "Apply Settings";
     applyBtn.onclick = () => {
-      // Final parse check of lists
       this.settings.detailsRotation = detailsRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
       this.settings.stateRotation = stateRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
       this.settings.cycleInterval = Math.max(1000, parseInt(intervalInput.value) || 5000);
