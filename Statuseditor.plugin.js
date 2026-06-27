@@ -28,7 +28,9 @@ module.exports = class Statuseditor {
       enableCustomActivity: true,
       widgetAppId: "",
       widgetBotToken: "",
-      widgetJson: ""
+      widgetJson: "",
+      widgetAutoSync: false,
+      widgetSyncInterval: 15
     };
 
     const saved = BdApi.Data.load("Statuseditor", "settings");
@@ -50,6 +52,7 @@ module.exports = class Statuseditor {
 
     this.cycleTimer = null;
     this.cycleIndex = 0;
+    this.widgetSyncTimer = null;
   }
 
   saveSettings() {
@@ -69,11 +72,16 @@ module.exports = class Statuseditor {
       this.startCycle();
     }
 
+    if (this.settings.widgetAutoSync) {
+      this.startWidgetSync();
+    }
+
     BdApi.UI.showToast("Status Editor: Activated", { type: "success" });
   }
 
   stop() {
     this.stopCycle();
+    this.stopWidgetSync();
     BdApi.Patcher.unpatchAll("Statuseditor");
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
   }
@@ -389,9 +397,34 @@ module.exports = class Statuseditor {
         activity: act
       });
     }
+
+    this.stopWidgetSync();
+    if (this.settings.widgetAutoSync) {
+      this.startWidgetSync();
+    }
   }
 
-  async pushWidget() {
+  startWidgetSync() {
+    this.stopWidgetSync();
+    if (!this.settings.widgetAppId || !this.settings.widgetBotToken || !this.settings.widgetJson) return;
+    
+    // Convert minutes to milliseconds (minimum 5 minutes to avoid rate limiting)
+    const intervalMs = Math.max(5, this.settings.widgetSyncInterval || 15) * 60 * 1000;
+    
+    this.pushWidget(true); // Initial push silently
+    this.widgetSyncTimer = setInterval(() => {
+      this.pushWidget(true);
+    }, intervalMs);
+  }
+
+  stopWidgetSync() {
+    if (this.widgetSyncTimer) {
+      clearInterval(this.widgetSyncTimer);
+      this.widgetSyncTimer = null;
+    }
+  }
+
+  async pushWidget(silent = false) {
     if (!this.settings.widgetAppId || !this.settings.widgetBotToken || !this.settings.widgetJson) {
       BdApi.UI.showToast("Widget Setup Incomplete: Missing App ID, Token, or JSON", { type: "error" });
       return;
@@ -402,7 +435,7 @@ module.exports = class Statuseditor {
       const userId = UserStore?.getCurrentUser()?.id;
 
       if (!userId) {
-        BdApi.UI.showToast("Could not get current User ID", { type: "error" });
+        if (!silent) BdApi.UI.showToast("Could not get current User ID", { type: "error" });
         return;
       }
 
@@ -410,7 +443,7 @@ module.exports = class Statuseditor {
       try {
         parsedJson = JSON.parse(this.settings.widgetJson);
       } catch (e) {
-        BdApi.UI.showToast("Invalid Widget JSON format", { type: "error" });
+        if (!silent) BdApi.UI.showToast("Invalid Widget JSON format", { type: "error" });
         return;
       }
 
@@ -427,15 +460,15 @@ module.exports = class Statuseditor {
       });
 
       if (response.ok) {
-        BdApi.UI.showToast("Widget pushed successfully!", { type: "success" });
+        if (!silent) BdApi.UI.showToast("Widget pushed successfully!", { type: "success" });
       } else {
         const text = await response.text();
         console.error("Statuseditor Widget Push Error:", text);
-        BdApi.UI.showToast(`Failed to push widget: ${response.status}`, { type: "error" });
+        if (!silent) BdApi.UI.showToast(`Failed to push widget: ${response.status}`, { type: "error" });
       }
     } catch (e) {
       console.error("Statuseditor Widget Error:", e);
-      BdApi.UI.showToast("Error pushing widget. Check console.", { type: "error" });
+      if (!silent) BdApi.UI.showToast("Error pushing widget. Check console.", { type: "error" });
     }
   }
 
@@ -1221,6 +1254,46 @@ module.exports = class Statuseditor {
     wJsonGroup.appendChild(wJsonInput);
     widgetSection.appendChild(wJsonGroup);
 
+    const wAutoSyncToggle = document.createElement("div");
+    wAutoSyncToggle.classList.add("sc-toggle-container");
+    wAutoSyncToggle.style.marginTop = "16px";
+
+    const wAutoSyncLabel = document.createElement("span");
+    wAutoSyncLabel.classList.add("sc-toggle-label");
+    wAutoSyncLabel.textContent = "Enable Auto-Sync Widget";
+    wAutoSyncToggle.appendChild(wAutoSyncLabel);
+
+    const wAutoSyncSwitchLabel = document.createElement("label");
+    wAutoSyncSwitchLabel.classList.add("sc-switch");
+
+    const wAutoSyncCheck = document.createElement("input");
+    wAutoSyncCheck.type = "checkbox";
+    wAutoSyncCheck.checked = this.settings.widgetAutoSync;
+    wAutoSyncCheck.onchange = () => {
+      this.settings.widgetAutoSync = wAutoSyncCheck.checked;
+    };
+
+    wAutoSyncSwitchLabel.appendChild(wAutoSyncCheck);
+    const wAutoSyncSlider = document.createElement("span");
+    wAutoSyncSlider.classList.add("sc-slider");
+    wAutoSyncSwitchLabel.appendChild(wAutoSyncSlider);
+    wAutoSyncToggle.appendChild(wAutoSyncSwitchLabel);
+    widgetSection.appendChild(wAutoSyncToggle);
+
+    const wIntervalGroup = document.createElement("div");
+    wIntervalGroup.classList.add("sc-form-group");
+    wIntervalGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Sync Interval (minutes)</span><span class="sc-badge">Minimum 5 min</span></div>`;
+    const wIntervalInput = document.createElement("input");
+    wIntervalInput.type = "number";
+    wIntervalInput.classList.add("sc-input");
+    wIntervalInput.value = this.settings.widgetSyncInterval || 15;
+    wIntervalInput.min = "5";
+    wIntervalInput.oninput = () => {
+      this.settings.widgetSyncInterval = Math.max(5, parseInt(wIntervalInput.value) || 15);
+    };
+    wIntervalGroup.appendChild(wIntervalInput);
+    widgetSection.appendChild(wIntervalGroup);
+
     const wPushBtn = document.createElement("button");
     wPushBtn.classList.add("sc-btn", "sc-btn-primary");
     wPushBtn.style.marginTop = "12px";
@@ -1261,6 +1334,8 @@ module.exports = class Statuseditor {
       wAppInput.value = this.settings.widgetAppId || "";
       wTokenInput.value = this.settings.widgetBotToken || "";
       wJsonInput.value = this.settings.widgetJson || "";
+      wAutoSyncCheck.checked = this.settings.widgetAutoSync;
+      wIntervalInput.value = this.settings.widgetSyncInterval.toString();
 
       renderSteps();
 
