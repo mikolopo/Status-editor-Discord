@@ -17,8 +17,11 @@ module.exports = class Statuseditor {
       streamUrl: "https://www.twitch.tv/discord",
       details: "Just vibing",
       state: "In the zone",
-      detailsRotation: ["Just vibing", "Chilling", "Coding"],
-      stateRotation: ["In the zone", "AFK", "Busy"],
+      steps: [
+        { details: "Just vibing", state: "In the zone" },
+        { details: "Chilling", state: "AFK" },
+        { details: "Coding", state: "Busy" }
+      ],
       cycleEnabled: false,
       cycleInterval: 5000,
       applicationId: "",
@@ -27,6 +30,20 @@ module.exports = class Statuseditor {
 
     const saved = BdApi.Data.load("Statuseditor", "settings");
     this.settings = saved ? { ...this.defaultSettings, ...saved } : { ...this.defaultSettings };
+
+    if (saved && (saved.detailsRotation || saved.stateRotation) && (!saved.steps || saved.steps.length === 0)) {
+      const detailsList = saved.detailsRotation || [];
+      const stateList = saved.stateRotation || [];
+      const maxLength = Math.max(detailsList.length, stateList.length);
+      const migratedSteps = [];
+      for (let i = 0; i < Math.min(10, maxLength); i++) {
+        migratedSteps.push({
+          details: detailsList[i] || "",
+          state: stateList[i] || ""
+        });
+      }
+      this.settings.steps = migratedSteps.length > 0 ? migratedSteps : this.defaultSettings.steps;
+    }
 
     this.cycleTimer = null;
     this.cycleIndex = 0;
@@ -113,19 +130,20 @@ module.exports = class Statuseditor {
         activity.url = this.settings.streamUrl || "https://www.twitch.tv/discord";
       }
 
-      const detailsList = this.settings.detailsRotation || [];
-      if (this.settings.cycleEnabled && detailsList.length > 0) {
-        activity.details = detailsList[this.cycleIndex % detailsList.length] || "";
+      let detailsText = "";
+      let stateText = "";
+
+      if (this.settings.cycleEnabled && this.settings.steps && this.settings.steps.length > 0) {
+        const currentStep = this.settings.steps[this.cycleIndex % this.settings.steps.length];
+        detailsText = currentStep?.details || "";
+        stateText = currentStep?.state || "";
       } else {
-        activity.details = this.settings.details || "";
+        detailsText = this.settings.details || "";
+        stateText = this.settings.state || "";
       }
 
-      const stateList = this.settings.stateRotation || [];
-      if (this.settings.cycleEnabled && stateList.length > 0) {
-        activity.state = stateList[this.cycleIndex % stateList.length] || "";
-      } else {
-        activity.state = this.settings.state || "";
-      }
+      activity.details = detailsText.trim() ? detailsText : "\u2800";
+      activity.state = stateText.trim() ? stateText : "\u2800";
 
       return activity;
     } catch (e) {
@@ -646,6 +664,42 @@ module.exports = class Statuseditor {
         font-weight: 700;
         text-transform: uppercase;
       }
+      
+      .sc-step-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+        background: #111214;
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid #3f4147;
+      }
+      .sc-step-num {
+        font-size: 12px;
+        font-weight: 700;
+        color: #5865f2;
+        min-width: 50px;
+      }
+      .sc-step-inputs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        flex-grow: 1;
+      }
+      .sc-btn-sm {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+      .sc-steps-container {
+        margin-top: 16px;
+      }
+      .sc-steps-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
     `;
     panel.appendChild(style);
 
@@ -996,15 +1050,56 @@ module.exports = class Statuseditor {
     appIdGroup.appendChild(appIdDesc);
     activitySection.appendChild(appIdGroup);
 
-    activitySection.appendChild(actFieldsRow);
     panel.appendChild(activitySection);
 
     const rotationSection = document.createElement("div");
     rotationSection.classList.add("sc-section");
-    rotationSection.innerHTML = `<div class="sc-section-title">Text Cycling & Animation</div>`;
+    rotationSection.innerHTML = `<div class="sc-section-title">Text Rotation & Static Status</div>`;
+
+    const staticInputsRow = document.createElement("div");
+    staticInputsRow.classList.add("sc-row");
+
+    const detailsGroup = document.createElement("div");
+    detailsGroup.classList.add("sc-form-group");
+    detailsGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Static Details</span></div>`;
+    const detailsInput = document.createElement("input");
+    detailsInput.type = "text";
+    detailsInput.classList.add("sc-input");
+    detailsInput.value = this.settings.details || "";
+    detailsInput.placeholder = "";
+    detailsInput.oninput = () => {
+      this.settings.details = detailsInput.value;
+    };
+    detailsGroup.appendChild(detailsInput);
+    const detailsDesc = document.createElement("div");
+    detailsDesc.classList.add("sc-field-desc");
+    detailsDesc.textContent = "Details: First description line below activity name.";
+    detailsGroup.appendChild(detailsDesc);
+    staticInputsRow.appendChild(detailsGroup);
+
+    const stateGroup = document.createElement("div");
+    stateGroup.classList.add("sc-form-group");
+    stateGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Static State</span></div>`;
+    const stateInput = document.createElement("input");
+    stateInput.type = "text";
+    stateInput.classList.add("sc-input");
+    stateInput.value = this.settings.state || "";
+    stateInput.placeholder = "";
+    stateInput.oninput = () => {
+      this.settings.state = stateInput.value;
+    };
+    stateGroup.appendChild(stateInput);
+    const stateDesc = document.createElement("div");
+    stateDesc.classList.add("sc-field-desc");
+    stateDesc.textContent = "State: Second description line below details.";
+    stateGroup.appendChild(stateDesc);
+    staticInputsRow.appendChild(stateGroup);
+
+    rotationSection.appendChild(staticInputsRow);
 
     const cycleToggle = document.createElement("div");
     cycleToggle.classList.add("sc-toggle-container");
+    cycleToggle.style.marginTop = "16px";
 
     const cycleToggleLabel = document.createElement("span");
     cycleToggleLabel.classList.add("sc-toggle-label");
@@ -1028,40 +1123,8 @@ module.exports = class Statuseditor {
     cycleToggle.appendChild(cycleSwitchLabel);
     rotationSection.appendChild(cycleToggle);
 
-    const rotRow = document.createElement("div");
-    rotRow.classList.add("sc-row");
-
-    const rotDetailsGroup = document.createElement("div");
-    rotDetailsGroup.classList.add("sc-form-group");
-    rotDetailsGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Details Rotation List</span></div>`;
-    const detailsRotArea = document.createElement("textarea");
-    detailsRotArea.classList.add("sc-textarea");
-    detailsRotArea.value = (this.settings.detailsRotation || []).join("\n");
-    detailsRotArea.placeholder = "";
-    detailsRotArea.oninput = () => {
-      this.settings.detailsRotation = detailsRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
-    };
-    rotDetailsGroup.appendChild(detailsRotArea);
-    rotRow.appendChild(rotDetailsGroup);
-
-    const rotStateGroup = document.createElement("div");
-    rotStateGroup.classList.add("sc-form-group");
-    rotStateGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">State Rotation List</span></div>`;
-    const stateRotArea = document.createElement("textarea");
-    stateRotArea.classList.add("sc-textarea");
-    stateRotArea.value = (this.settings.stateRotation || []).join("\n");
-    stateRotArea.placeholder = "";
-    stateRotArea.oninput = () => {
-      this.settings.stateRotation = stateRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
-    };
-    rotStateGroup.appendChild(stateRotArea);
-    rotRow.appendChild(rotStateGroup);
-
-    rotationSection.appendChild(rotRow);
-
     const intervalGroup = document.createElement("div");
     intervalGroup.classList.add("sc-form-group");
-    intervalGroup.style.marginTop = "16px";
     intervalGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Cycle Interval (ms)</span></div>`;
 
     const intervalInput = document.createElement("input");
@@ -1075,6 +1138,88 @@ module.exports = class Statuseditor {
     };
     intervalGroup.appendChild(intervalInput);
     rotationSection.appendChild(intervalGroup);
+
+    const stepsContainer = document.createElement("div");
+    stepsContainer.classList.add("sc-steps-container");
+
+    const renderSteps = () => {
+      stepsContainer.innerHTML = "";
+
+      const stepsHeader = document.createElement("div");
+      stepsHeader.classList.add("sc-steps-header");
+      stepsHeader.innerHTML = `<span class="sc-label">Text Rotation Steps (${this.settings.steps.length}/10)</span>`;
+
+      const addBtn = document.createElement("button");
+      addBtn.classList.add("sc-btn", "sc-btn-secondary", "sc-btn-sm");
+      addBtn.textContent = "+ Add Step";
+      if (this.settings.steps.length >= 10) {
+        addBtn.disabled = true;
+      }
+      addBtn.onclick = (e) => {
+        e.preventDefault();
+        if (this.settings.steps.length < 10) {
+          this.settings.steps.push({ details: "", state: "" });
+          renderSteps();
+        }
+      };
+      stepsHeader.appendChild(addBtn);
+      stepsContainer.appendChild(stepsHeader);
+
+      this.settings.steps.forEach((step, idx) => {
+        const row = document.createElement("div");
+        row.classList.add("sc-step-row");
+
+        const num = document.createElement("span");
+        num.classList.add("sc-step-num");
+        num.textContent = `Step ${idx + 1}`;
+        row.appendChild(num);
+
+        const inputsDiv = document.createElement("div");
+        inputsDiv.classList.add("sc-step-inputs");
+
+        const detInput = document.createElement("input");
+        detInput.type = "text";
+        detInput.classList.add("sc-input");
+        detInput.value = step.details || "";
+        detInput.placeholder = "Details text...";
+        detInput.oninput = () => {
+          step.details = detInput.value;
+        };
+
+        const stInput = document.createElement("input");
+        stInput.type = "text";
+        stInput.classList.add("sc-input");
+        stInput.value = step.state || "";
+        stInput.placeholder = "State text...";
+        stInput.oninput = () => {
+          step.state = stInput.value;
+        };
+
+        inputsDiv.appendChild(detInput);
+        inputsDiv.appendChild(stInput);
+        row.appendChild(inputsDiv);
+
+        const delBtn = document.createElement("button");
+        delBtn.classList.add("sc-btn", "sc-btn-danger", "sc-btn-sm");
+        delBtn.textContent = "Remove";
+        if (this.settings.steps.length <= 1) {
+          delBtn.disabled = true;
+        }
+        delBtn.onclick = (e) => {
+          e.preventDefault();
+          if (this.settings.steps.length > 1) {
+            this.settings.steps.splice(idx, 1);
+            renderSteps();
+          }
+        };
+        row.appendChild(delBtn);
+
+        stepsContainer.appendChild(row);
+      });
+    };
+
+    renderSteps();
+    rotationSection.appendChild(stepsContainer);
 
     panel.appendChild(rotationSection);
 
@@ -1098,28 +1243,13 @@ module.exports = class Statuseditor {
       nameInput.value = this.settings.activityName;
       activityTypeSelect.value = this.settings.activityType.toString();
       streamInput.value = this.settings.streamUrl;
-      if (detailsOptions.includes(this.settings.details)) {
-        detailsSelect.value = this.settings.details;
-        detailsCustomInput.style.display = "none";
-      } else {
-        detailsSelect.value = "custom";
-        detailsCustomInput.value = this.settings.details;
-        detailsCustomInput.style.display = "block";
-      }
-
-      if (stateOptions.includes(this.settings.state)) {
-        stateSelect.value = this.settings.state;
-        stateCustomInput.style.display = "none";
-      } else {
-        stateSelect.value = "custom";
-        stateCustomInput.value = this.settings.state;
-        stateCustomInput.style.display = "block";
-      }
+      detailsInput.value = this.settings.details || "";
+      stateInput.value = this.settings.state || "";
       cycleCheck.checked = this.settings.cycleEnabled;
-      detailsRotArea.value = (this.settings.detailsRotation || []).join("\n");
-      stateRotArea.value = (this.settings.stateRotation || []).join("\n");
       intervalInput.value = this.settings.cycleInterval.toString();
       appIdInput.value = this.settings.applicationId || "";
+
+      renderSteps();
 
       if (this.settings.status === "streaming" || customActivityCheck.checked) {
         activitySection.style.display = "block";
@@ -1140,10 +1270,7 @@ module.exports = class Statuseditor {
     applyBtn.classList.add("sc-btn", "sc-btn-primary");
     applyBtn.textContent = "Apply Settings";
     applyBtn.onclick = () => {
-      this.settings.detailsRotation = detailsRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
-      this.settings.stateRotation = stateRotArea.value.split("\n").map(x => x.trim()).filter(Boolean);
       this.settings.cycleInterval = Math.max(1000, parseInt(intervalInput.value) || 5000);
-
       this.applySettings();
       BdApi.UI.showToast("Configuration Applied Successfully!", { type: "success" });
     };
