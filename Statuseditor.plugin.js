@@ -30,7 +30,7 @@ module.exports = class Statuseditor {
       widgetJson: "",
       widgetAutoSync: false,
       widgetSyncInterval: 15,
-      birthDate: "2000-01-01T12:00",
+      targetDate: "2000-01-01T12:00",
       totalCallMinutes: 0
     };
 
@@ -478,17 +478,18 @@ module.exports = class Statuseditor {
 
       let jsonString = this.settings.widgetJson;
       
-      let lifeMinutes = 0;
-      if (this.settings.birthDate) {
-        const bd = new Date(this.settings.birthDate).getTime();
+      let minutesSinceDate = 0;
+      if (this.settings.targetDate) {
+        const bd = new Date(this.settings.targetDate).getTime();
         if (!isNaN(bd)) {
-          lifeMinutes = Math.floor((Date.now() - bd) / 60000);
+          minutesSinceDate = Math.floor((Date.now() - bd) / 60000);
         }
       }
       
       const callMinutes = this.settings.totalCallMinutes || 0;
 
-      jsonString = jsonString.replace(/\{\{LIFE_MINUTES\}\}/g, lifeMinutes.toString());
+      jsonString = jsonString.replace(/\{\{LIFE_MINUTES\}\}/g, minutesSinceDate.toString());
+      jsonString = jsonString.replace(/\{\{MINUTES_SINCE_DATE\}\}/g, minutesSinceDate.toString());
       jsonString = jsonString.replace(/\{\{CALL_MINUTES\}\}/g, callMinutes.toString());
 
       let parsedJson;
@@ -1353,7 +1354,7 @@ module.exports = class Statuseditor {
     wDynSection.innerHTML = `
       <div class="sc-section-title">Dynamic Variables</div>
       <div class="sc-field-desc" style="margin-bottom: 16px;">
-        You can use <code>{{LIFE_MINUTES}}</code> or <code>{{CALL_MINUTES}}</code> in your Widget JSON. The plugin will automatically replace them with real numbers before pushing to Discord.
+        You can use <code>{{MINUTES_SINCE_DATE}}</code> or <code>{{CALL_MINUTES}}</code> in your Widget JSON. The plugin will automatically replace them with real numbers before pushing to Discord.
       </div>
     `;
 
@@ -1362,12 +1363,12 @@ module.exports = class Statuseditor {
 
     const wBdGroup = document.createElement("div");
     wBdGroup.classList.add("sc-form-group");
-    wBdGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Birth Date (For Life Minutes)</span></div>`;
+    wBdGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Target Date (For {{MINUTES_SINCE_DATE}})</span></div>`;
     const wBdInput = document.createElement("input");
     wBdInput.type = "datetime-local";
     wBdInput.classList.add("sc-input");
-    wBdInput.value = this.settings.birthDate || "2000-01-01T12:00";
-    wBdInput.onchange = () => { this.settings.birthDate = wBdInput.value; };
+    wBdInput.value = this.settings.targetDate || "2000-01-01T12:00";
+    wBdInput.onchange = () => { this.settings.targetDate = wBdInput.value; };
     wBdGroup.appendChild(wBdInput);
     wDynRow.appendChild(wBdGroup);
 
@@ -1446,7 +1447,7 @@ module.exports = class Statuseditor {
       wJsonInput.value = this.settings.widgetJson || "";
       wAutoSyncCheck.checked = this.settings.widgetAutoSync;
       wIntervalInput.value = this.settings.widgetSyncInterval.toString();
-      wBdInput.value = this.settings.birthDate || "2000-01-01T12:00";
+      wBdInput.value = this.settings.targetDate || "2000-01-01T12:00";
       wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " minutes tracked";
 
       renderSteps();
