@@ -105,9 +105,7 @@ module.exports = class Statuseditor {
         flags: 1
       };
 
-      if (this.settings.applicationId) {
-        activity.application_id = this.settings.applicationId;
-      }
+      activity.application_id = this.settings.applicationId || "0";
 
       if (activity.type === 1) {
         activity.url = this.settings.streamUrl || "https://www.twitch.tv/discord";
@@ -311,10 +309,16 @@ module.exports = class Statuseditor {
     this.stopCycle();
     const interval = Math.max(1000, this.settings.cycleInterval || 5000);
 
-    this.cycleTimer = setInterval(() => {
-      this.cycleIndex++;
+    const update = () => {
       const FluxDispatcher = BdApi.Webpack.getModule(m => m?.dispatch && m?.subscribe);
       FluxDispatcher?.dispatch({ type: "LOCAL_ACTIVITY_UPDATE", activity: null });
+    };
+
+    update();
+
+    this.cycleTimer = setInterval(() => {
+      this.cycleIndex++;
+      update();
     }, interval);
   }
 
