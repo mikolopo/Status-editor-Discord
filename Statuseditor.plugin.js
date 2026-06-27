@@ -850,29 +850,127 @@ module.exports = class Statuseditor {
     const detailsGroup = document.createElement("div");
     detailsGroup.classList.add("sc-form-group");
     detailsGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Static Details</span></div>`;
-    const detailsInput = document.createElement("input");
-    detailsInput.type = "text";
-    detailsInput.classList.add("sc-input");
-    detailsInput.value = this.settings.details;
-    detailsInput.placeholder = "";
-    detailsInput.oninput = () => {
-      this.settings.details = detailsInput.value;
+    
+    const detailsSelect = document.createElement("select");
+    detailsSelect.classList.add("sc-select");
+    
+    const detailsPresets = ["Chilling", "Coding", "Gaming", "Streaming", "Working"];
+    const detailsOptions = [...new Set([...detailsPresets, ...(this.settings.detailsRotation || [])])];
+    
+    detailsOptions.forEach(optVal => {
+      const opt = document.createElement("option");
+      opt.value = optVal;
+      opt.textContent = optVal;
+      detailsSelect.appendChild(opt);
+    });
+    
+    const customDetailsOpt = document.createElement("option");
+    customDetailsOpt.value = "custom";
+    customDetailsOpt.textContent = "Custom...";
+    detailsSelect.appendChild(customDetailsOpt);
+
+    const detailsCustomInput = document.createElement("input");
+    detailsCustomInput.type = "text";
+    detailsCustomInput.classList.add("sc-input");
+    detailsCustomInput.style.marginTop = "8px";
+    detailsCustomInput.value = this.settings.details || "";
+
+    const detailsSelectedVal = this.settings.details;
+    if (detailsOptions.includes(detailsSelectedVal)) {
+      detailsSelect.value = detailsSelectedVal;
+      detailsCustomInput.style.display = "none";
+    } else {
+      detailsSelect.value = "custom";
+      detailsCustomInput.style.display = "block";
+    }
+
+    detailsSelect.onchange = () => {
+      if (detailsSelect.value === "custom") {
+        detailsCustomInput.style.display = "block";
+        this.settings.details = detailsCustomInput.value;
+      } else {
+        detailsCustomInput.style.display = "none";
+        this.settings.details = detailsSelect.value;
+      }
     };
-    detailsGroup.appendChild(detailsInput);
+
+    detailsCustomInput.oninput = () => {
+      if (detailsSelect.value === "custom") {
+        this.settings.details = detailsCustomInput.value;
+      }
+    };
+
+    detailsGroup.appendChild(detailsSelect);
+    detailsGroup.appendChild(detailsCustomInput);
+    
+    const detailsDesc = document.createElement("div");
+    detailsDesc.classList.add("sc-field-desc");
+    detailsDesc.textContent = "Details: The first description line below your activity name (e.g. what you are doing).";
+    detailsGroup.appendChild(detailsDesc);
+    
     actFieldsRow.appendChild(detailsGroup);
 
     const stateGroup = document.createElement("div");
     stateGroup.classList.add("sc-form-group");
     stateGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Static State</span></div>`;
-    const stateInput = document.createElement("input");
-    stateInput.type = "text";
-    stateInput.classList.add("sc-input");
-    stateInput.value = this.settings.state;
-    stateInput.placeholder = "";
-    stateInput.oninput = () => {
-      this.settings.state = stateInput.value;
+    
+    const stateSelect = document.createElement("select");
+    stateSelect.classList.add("sc-select");
+    
+    const statePresets = ["In the zone", "Solo", "AFK", "Busy"];
+    const stateOptions = [...new Set([...statePresets, ...(this.settings.stateRotation || [])])];
+    
+    stateOptions.forEach(optVal => {
+      const opt = document.createElement("option");
+      opt.value = optVal;
+      opt.textContent = optVal;
+      stateSelect.appendChild(opt);
+    });
+    
+    const customStateOpt = document.createElement("option");
+    customStateOpt.value = "custom";
+    customStateOpt.textContent = "Custom...";
+    stateSelect.appendChild(customStateOpt);
+
+    const stateCustomInput = document.createElement("input");
+    stateCustomInput.type = "text";
+    stateCustomInput.classList.add("sc-input");
+    stateCustomInput.style.marginTop = "8px";
+    stateCustomInput.value = this.settings.state || "";
+
+    const stateSelectedVal = this.settings.state;
+    if (stateOptions.includes(stateSelectedVal)) {
+      stateSelect.value = stateSelectedVal;
+      stateCustomInput.style.display = "none";
+    } else {
+      stateSelect.value = "custom";
+      stateCustomInput.style.display = "block";
+    }
+
+    stateSelect.onchange = () => {
+      if (stateSelect.value === "custom") {
+        stateCustomInput.style.display = "block";
+        this.settings.state = stateCustomInput.value;
+      } else {
+        stateCustomInput.style.display = "none";
+        this.settings.state = stateSelect.value;
+      }
     };
-    stateGroup.appendChild(stateInput);
+
+    stateCustomInput.oninput = () => {
+      if (stateSelect.value === "custom") {
+        this.settings.state = stateCustomInput.value;
+      }
+    };
+
+    stateGroup.appendChild(stateSelect);
+    stateGroup.appendChild(stateCustomInput);
+    
+    const stateDesc = document.createElement("div");
+    stateDesc.classList.add("sc-field-desc");
+    stateDesc.textContent = "State: The second description line below details (e.g. your active status or sub-info).";
+    stateGroup.appendChild(stateDesc);
+    
     actFieldsRow.appendChild(stateGroup);
 
     const appIdGroup = document.createElement("div");
@@ -1000,8 +1098,23 @@ module.exports = class Statuseditor {
       nameInput.value = this.settings.activityName;
       activityTypeSelect.value = this.settings.activityType.toString();
       streamInput.value = this.settings.streamUrl;
-      detailsInput.value = this.settings.details;
-      stateInput.value = this.settings.state;
+      if (detailsOptions.includes(this.settings.details)) {
+        detailsSelect.value = this.settings.details;
+        detailsCustomInput.style.display = "none";
+      } else {
+        detailsSelect.value = "custom";
+        detailsCustomInput.value = this.settings.details;
+        detailsCustomInput.style.display = "block";
+      }
+
+      if (stateOptions.includes(this.settings.state)) {
+        stateSelect.value = this.settings.state;
+        stateCustomInput.style.display = "none";
+      } else {
+        stateSelect.value = "custom";
+        stateCustomInput.value = this.settings.state;
+        stateCustomInput.style.display = "block";
+      }
       cycleCheck.checked = this.settings.cycleEnabled;
       detailsRotArea.value = (this.settings.detailsRotation || []).join("\n");
       stateRotArea.value = (this.settings.stateRotation || []).join("\n");
