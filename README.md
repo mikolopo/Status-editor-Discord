@@ -2,6 +2,8 @@
 
 **Statuseditor** is a powerful BetterDiscord plugin that allows you to fully customize your Discord presence and manage your profile widgets through an interactive interface.
 
+![Statuseditor Profile Widget Preview](preview.png)
+
 ---
 
 ## Key Features
