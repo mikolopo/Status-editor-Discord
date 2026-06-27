@@ -858,7 +858,7 @@ module.exports = class Statuseditor {
         try {
           const errObj = JSON.parse(errText);
           if (errText.includes("WIDGET_CONFIG_MISSING_ASSET")) {
-            BdApi.UI.showToast("Błąd: Wybrany layout wymaga assetu graficznego! Dodaj go w Developer Portal (Rich Presence -> Art Assets) i wybierz poprawną nazwę we wtyczce.", { type: "error", timeout: 8000 });
+            BdApi.UI.showToast("Error: The selected layout requires a graphic asset! Add it in the Developer Portal (Rich Presence -> Art Assets) and select the correct name in the plugin.", { type: "error", timeout: 8000 });
           } else if (errObj.errors) {
             const getErrorMsg = (obj) => {
               if (typeof obj === "string") return obj;
@@ -871,24 +871,24 @@ module.exports = class Statuseditor {
               return null;
             };
             const msg = getErrorMsg(errObj.errors);
-            BdApi.UI.showToast(`Błąd zapisu: ${msg || errObj.message}`, { type: "error", timeout: 6000 });
+            BdApi.UI.showToast(`Save error: ${msg || errObj.message}`, { type: "error", timeout: 6000 });
           } else {
-            BdApi.UI.showToast(`Błąd zapisu: ${errObj.message || res.status}`, { type: "error" });
+            BdApi.UI.showToast(`Save error: ${errObj.message || res.status}`, { type: "error" });
           }
         } catch (e) {
-          BdApi.UI.showToast("Błąd zapisu konfiguracji: " + res.status, { type: "error" });
+          BdApi.UI.showToast("Error saving configuration: " + res.status, { type: "error" });
         }
       }
     } catch (e) { BdApi.UI.showToast("Error saving config", { type: "error" }); console.error(e); }
   }
 
   async loadWidgetEditorInto(container) {
-    container.innerHTML = `<div style="text-align:center;padding:20px;opacity:.6">⏳ Ladowanie konfiguracji z Discorda...</div>`;
+    container.innerHTML = `<div style="text-align:center;padding:20px;opacity:.6">⏳ Loading configuration from Discord...</div>`;
     const config = await this.fetchWidgetConfig();
     container.innerHTML = "";
 
     if (!config || !config.surfaces) {
-      container.innerHTML = `<div style="text-align:center;padding:16px;color:#ed4245;">Blad pobierania konfiguracji. Sprawdz App ID i Config ID.</div>`;
+      container.innerHTML = `<div style="text-align:center;padding:16px;color:#ed4245;">Error fetching configuration. Check App ID and Config ID.</div>`;
       return;
     }
 
@@ -1002,11 +1002,11 @@ module.exports = class Statuseditor {
     };
 
     const DATA_OPTIONS = [
-      { value: "", label: "-- Statyczny tekst --" },
-      { value: "minutes_since_formatted", label: "Czas zycia (Formatowany: 20yr 5day 3h)" },
-      { value: "minutes_since", label: "Czas zycia (Liczba minut)" },
-      { value: "discord_wasted_formatted", label: "Czas Discord (Formatowany: 1day 7h)" },
-      { value: "discord_wasted", label: "Czas Discord (Liczba minut)" },
+      { value: "", label: "-- Static Text --" },
+      { value: "minutes_since_formatted", label: "Time Elapsed (Formatted: 20yr 5day 3h)" },
+      { value: "minutes_since", label: "Time Elapsed (Total Minutes)" },
+      { value: "discord_wasted_formatted", label: "Discord Call Time (Formatted: 1day 7h)" },
+      { value: "discord_wasted", label: "Discord Call Time (Total Minutes)" },
       { value: "lol_stats", label: "League of Legends Live Companion 🎮" },
       { value: "In_Call", label: "Voice Call Status 📞" },
       { value: "Spotify_song", label: "Spotify Current Song 🎧" }
@@ -1030,7 +1030,7 @@ module.exports = class Statuseditor {
     });
 
     if (surfaceKeys.length === 0) {
-      container.innerHTML = `<div style="text-align:center;padding:12px;opacity:.5">Brak powierzchni do wyrenderowania.</div>`;
+      container.innerHTML = `<div style="text-align:center;padding:12px;opacity:.5">No surfaces to render.</div>`;
       return;
     }
 
@@ -1082,7 +1082,7 @@ module.exports = class Statuseditor {
           this.saveSettings();
           this.renderWidgetEditor(container, resolvedAssets, activeTab);
         } else {
-          BdApi.UI.showToast("Brak zdefiniowanego szablonu dla tego layoutu we wtyczce.", { type: "warning" });
+          BdApi.UI.showToast("No template defined for this layout in the plugin.", { type: "warning" });
         }
       };
 
@@ -1145,7 +1145,7 @@ module.exports = class Statuseditor {
             
             // If it's a custom string, select the static text option
             const staticOpt = document.createElement("option");
-            staticOpt.value = ""; staticOpt.textContent = "-- Statyczny tekst --";
+            staticOpt.value = ""; staticOpt.textContent = "-- Static Text --";
             if (fieldData.value_type !== "data") staticOpt.selected = true;
             sel.insertBefore(staticOpt, sel.firstChild);
 
@@ -1161,7 +1161,7 @@ module.exports = class Statuseditor {
             inp.type = "text"; inp.classList.add("sc-input");
             inp.style.cssText = "margin:0;padding:5px 8px;font-size:12px;";
             inp.value = fieldData.value_type !== "data" ? (fieldData.value || "") : "";
-            inp.placeholder = fieldKey === "label" ? "Wpisz etykietę..." : "Wpisz tekst...";
+            inp.placeholder = fieldKey === "label" ? "Enter label..." : "Enter text...";
 
             // Toggle input visibility based on source selection
             const updateVisibility = () => {
