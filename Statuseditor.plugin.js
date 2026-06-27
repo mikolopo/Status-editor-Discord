@@ -164,6 +164,30 @@ module.exports = class Statuseditor {
     return null;
   }
 
+  getHTTPModule() {
+    try {
+      const HTTP = BdApi.Webpack.getModule((m) => {
+        if (!m) return false;
+        const check = (obj) => {
+          return (
+            typeof obj.get === "function" &&
+            typeof obj.post === "function" &&
+            typeof obj.put === "function" &&
+            typeof obj.patch === "function" &&
+            (typeof obj.del === "function" || typeof obj.delete === "function")
+          );
+        };
+        return check(m) || (m.default && check(m.default));
+      });
+      if (HTTP) {
+        return HTTP.patch ? HTTP : HTTP.default;
+      }
+    } catch (e) {
+      console.warn("Statuseditor: getHTTPModule failed:", e);
+    }
+    return null;
+  }
+
   updatePresenceStatus(status) {
     if (!status || status === "streaming") return;
 
@@ -196,12 +220,9 @@ module.exports = class Statuseditor {
     }
 
     try {
-      const HTTPPatch = this.getModuleFunction(
-        (m) => (m?.patch && m?.get) || (m?.default?.patch && m?.default?.get),
-        "patch"
-      );
-      if (HTTPPatch) {
-        HTTPPatch({
+      const HTTP = this.getHTTPModule();
+      if (HTTP && typeof HTTP.patch === "function") {
+        HTTP.patch({
           url: "/users/@me/settings",
           body: { status: status }
         }).then(res => {
