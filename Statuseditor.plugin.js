@@ -122,12 +122,23 @@ module.exports = class Statuseditor {
           this.exitConfirmed = true;
           window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
           
-          // Use Discord's native Electron API to hard-terminate the app cleanly, avoiding ghost background processes
-          if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.exit === "function") {
-            window.DiscordNative.app.exit(0);
-          } else if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
-            window.DiscordNative.app.quit();
-          } else {
+          try {
+            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Finalizing exit execution...\n", { flag: "a" });
+            
+            if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.quit()...\n", { flag: "a" });
+              window.DiscordNative.app.quit();
+            } else if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.exit === "function") {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.exit(0)...\n", { flag: "a" });
+              window.DiscordNative.app.exit(0);
+            } else {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling fallback window.close()...\n", { flag: "a" });
+              window.close();
+            }
+          } catch (errExit) {
+            try {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Exit error: ${errExit.message || errExit}\n`, { flag: "a" });
+            } catch (e) {}
             window.close();
           }
         };
