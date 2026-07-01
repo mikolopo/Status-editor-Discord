@@ -239,10 +239,11 @@ module.exports = class Statuseditor {
         } catch(e) {}
       });
 
-      // Synchronously block the renderer thread for 600ms. 
+      // Synchronously block the renderer thread for 1200ms. 
       // This delays Electron window destruction and gives the main process network stack enough time to complete the HTTP call.
+      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Entering 1200ms synchronous delay block...\n", { flag: "a" });
       const start = Date.now();
-      while (Date.now() - start < 600) {
+      while (Date.now() - start < 1200) {
         // Hard busy wait sleep
       }
       
