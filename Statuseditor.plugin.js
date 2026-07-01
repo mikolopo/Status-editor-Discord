@@ -122,8 +122,10 @@ module.exports = class Statuseditor {
           this.exitConfirmed = true;
           window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
           
-          // Use Discord's native Electron API to quit the application cleanly, preventing orphan background processes
-          if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
+          // Use Discord's native Electron API to hard-terminate the app cleanly, avoiding ghost background processes
+          if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.exit === "function") {
+            window.DiscordNative.app.exit(0);
+          } else if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
             window.DiscordNative.app.quit();
           } else {
             window.close();
