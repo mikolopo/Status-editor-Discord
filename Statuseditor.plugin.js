@@ -100,6 +100,12 @@ module.exports = class Statuseditor {
       FluxDispatcher.subscribe("LOCAL_ACTIVITY_UPDATE", this.handleLocalActivityUpdateBound);
     }
 
+    // Handle beforeunload to push offline state when Discord or Windows closes
+    this.handleBeforeUnloadBound = () => {
+      this.pushWidgetOfflineSync();
+    };
+    window.addEventListener("beforeunload", this.handleBeforeUnloadBound);
+
     // Expose instance globally for custom scripts
     window.statusEditorInstance = this;
 
@@ -109,9 +115,13 @@ module.exports = class Statuseditor {
   async stop() {
     // Push offline status to the profile widget before shut down
     try {
-      await this.pushWidgetOffline();
+      this.pushWidgetOfflineSync();
     } catch (e) {
       console.warn("Statuseditor: Failed to push offline status during stop", e);
+    }
+
+    if (this.handleBeforeUnloadBound) {
+      window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
     }
 
     this.stopCycle();
@@ -139,7 +149,7 @@ module.exports = class Statuseditor {
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
   }
 
-  async pushWidgetOffline() {
+  pushWidgetOfflineSync() {
     if (!this.settings.widgetAppId || !this.settings.widgetBotToken) return;
 
     try {
@@ -179,7 +189,6 @@ module.exports = class Statuseditor {
         if (name === "lol_stats") return "Game Off 💤";
         if (name === "In_Call") return "No Call";
         if (name === "Spotify_song") return "Not playing";
-        // Custom variables (temperatures, weather, etc)
         return "PC Off 🛌";
       };
 
@@ -200,7 +209,9 @@ module.exports = class Statuseditor {
       };
 
       const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
-      await BdApi.Net.fetch(url, {
+
+      let completed = false;
+      BdApi.Net.fetch(url, {
         method: "PATCH",
         headers: { 
           "Content-Type": "application/json", 
@@ -208,7 +219,18 @@ module.exports = class Statuseditor {
           "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" 
         },
         body: JSON.stringify(payload)
+      }).then(() => {
+        completed = true;
+      }).catch((e) => {
+        console.error("Statuseditor: Offline push fetch failed:", e);
+        completed = true;
       });
+
+      // Synchronously block the renderer thread for up to 400ms to allow the IPC/network thread to process the request
+      const start = Date.now();
+      while (!completed && (Date.now() - start < 450)) {
+        // Busy wait
+      }
     } catch (e) {
       console.error("Statuseditor: Error pushing offline widget:", e);
     }
