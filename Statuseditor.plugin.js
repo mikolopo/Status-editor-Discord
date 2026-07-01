@@ -123,7 +123,7 @@ module.exports = class Statuseditor {
           window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
           
           try {
-            // Allow Electron's main process 100ms to clear the cancelled exit event loop before we re-trigger quit
+            // Allow Electron's main process 250ms to clear the cancelled exit event loop before we re-trigger quit
             setTimeout(() => {
               try {
                 // Test importing require('electron') to bypass sandbox restrictions
@@ -153,10 +153,10 @@ module.exports = class Statuseditor {
               } catch (innerErr) {
                 window.close();
               }
-            }, 100);
+            }, 250);
 
           } catch (errExit) {
-            // Final fallback after 100ms
+            // Final fallback after 250ms
             setTimeout(() => {
               const WindowActionsFallback = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
               if (WindowActionsFallback && typeof WindowActionsFallback.quit === "function") {
@@ -166,7 +166,7 @@ module.exports = class Statuseditor {
               } else {
                 window.close();
               }
-            }, 100);
+            }, 250);
           }
         };
 
