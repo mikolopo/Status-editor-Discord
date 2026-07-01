@@ -123,26 +123,6 @@ module.exports = class Statuseditor {
           window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
           
           try {
-            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Finalizing exit execution...\n", { flag: "a" });
-            
-            // Log properties of DiscordNative for debugging
-            const dnKeys = window.DiscordNative ? Object.keys(window.DiscordNative).join(", ") : "null";
-            const dnAppKeys = (window.DiscordNative && window.DiscordNative.app) ? Object.keys(window.DiscordNative.app).join(", ") : "null";
-            const dnWinKeys = (window.DiscordNative && window.DiscordNative.window) ? Object.keys(window.DiscordNative.window).join(", ") : "null";
-            const dnIpcKeys = (window.DiscordNative && window.DiscordNative.ipc) ? Object.keys(window.DiscordNative.ipc).join(", ") : "null";
-            const dnProcKeys = (window.DiscordNative && window.DiscordNative.process) ? Object.keys(window.DiscordNative.process).join(", ") : "null";
-            const dnProcUtilsKeys = (window.DiscordNative && window.DiscordNative.processUtils) ? Object.keys(window.DiscordNative.processUtils).join(", ") : "null";
-            
-            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", 
-              `DiscordNative keys: ${dnKeys}\n` +
-              `DiscordNative.app keys: ${dnAppKeys}\n` +
-              `DiscordNative.window keys: ${dnWinKeys}\n` +
-              `DiscordNative.ipc keys: ${dnIpcKeys}\n` +
-              `DiscordNative.process keys: ${dnProcKeys}\n` +
-              `DiscordNative.processUtils keys: ${dnProcUtilsKeys}\n`, 
-              { flag: "a" }
-            );
-
             // Allow Electron's main process 100ms to clear the cancelled exit event loop before we re-trigger quit
             setTimeout(() => {
               try {
@@ -150,17 +130,11 @@ module.exports = class Statuseditor {
                 let electronModule = null;
                 try {
                   electronModule = require("electron");
-                } catch (errEl) {
-                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron require error: ${errEl.message || errEl}\n`, { flag: "a" });
-                }
+                } catch (errEl) {}
 
                 if (electronModule) {
-                  const elKeys = Object.keys(electronModule).join(", ");
-                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron keys: ${elKeys}\n`, { flag: "a" });
-                  
                   const ipcRenderer = electronModule.ipcRenderer;
                   if (ipcRenderer && typeof ipcRenderer.send === "function") {
-                    nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling electron.ipcRenderer.send('DISCORD_QUIT')...\n", { flag: "a" });
                     ipcRenderer.send("DISCORD_QUIT");
                     return;
                   }
@@ -170,28 +144,18 @@ module.exports = class Statuseditor {
                 const WindowActions = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
                 
                 if (WindowActions && typeof WindowActions.quit === "function") {
-                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling WindowActions.quit()...\n", { flag: "a" });
                   WindowActions.quit();
                 } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
-                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.window.close()...\n", { flag: "a" });
                   window.DiscordNative.window.close();
                 } else {
-                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling fallback window.close()...\n", { flag: "a" });
                   window.close();
                 }
               } catch (innerErr) {
-                try {
-                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Inner exit error: ${innerErr.message || innerErr}\n`, { flag: "a" });
-                } catch (e) {}
                 window.close();
               }
             }, 100);
 
           } catch (errExit) {
-            try {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Exit error: ${errExit.message || errExit}\n`, { flag: "a" });
-            } catch (e) {}
-            
             // Final fallback after 100ms
             setTimeout(() => {
               const WindowActionsFallback = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
@@ -321,8 +285,6 @@ module.exports = class Statuseditor {
 
         const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
 
-        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via BdApi.Net.fetch...\n", { flag: "w" });
-
         BdApi.Net.fetch(url, {
           method: "PATCH",
           headers: { 
@@ -332,23 +294,13 @@ module.exports = class Statuseditor {
           },
           body: JSON.stringify(payload)
         }).then(async (res) => {
-          const text = await res.text();
-          try {
-            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch completed! Status: ${res.status}\nResponse: ${text}\n`, { flag: "a" });
-          } catch(e) {}
           resolve();
         }).catch((err) => {
-          try {
-            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch failed: ${err.message || err}\n`, { flag: "a" });
-          } catch(e) {}
           resolve(); // Resolve anyway to not block exit
         });
 
       } catch (e) {
         console.error("Statuseditor: Error pushing offline widget:", e);
-        try {
-          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Global error: ${e.message || e}\n`, { flag: "a" });
-        } catch (err) {}
         resolve();
       }
     });
