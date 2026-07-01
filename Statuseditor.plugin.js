@@ -210,17 +210,31 @@ module.exports = class Statuseditor {
 
       const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
 
-      // Use native synchronous XMLHttpRequest to force-block the main process until the request is dispatched
-      const xhr = new XMLHttpRequest();
-      xhr.open("PATCH", url, false); // false = synchronous
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.setRequestHeader("Authorization", `Bot ${this.settings.widgetBotToken}`);
-      xhr.setRequestHeader("User-Agent", "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)");
-      xhr.send(JSON.stringify(payload));
+      // Use window.fetch with keepalive: true to ensure the request completes even after the window is destroyed
+      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via window.fetch with keepalive: true...\n", { flag: "w" });
       
-      console.log("Statuseditor: Synced offline widget state during exit, response status:", xhr.status);
+      window.fetch(url, {
+        method: "PATCH",
+        keepalive: true,
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bot ${this.settings.widgetBotToken}`, 
+          "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" 
+        },
+        body: JSON.stringify(payload)
+      }).then(async (res) => {
+        const text = await res.text();
+        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch completed! Status: ${res.status}\nResponse: ${text}\n`, { flag: "a" });
+      }).catch((err) => {
+        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch failed: ${err.message || err}\n`, { flag: "a" });
+      });
+
+      console.log("Statuseditor: Dispatched offline widget update with keepalive: true");
     } catch (e) {
       console.error("Statuseditor: Error pushing offline widget:", e);
+      try {
+        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Global error: ${e.message || e}\n`, { flag: "a" });
+      } catch (err) {}
     }
   }
 
