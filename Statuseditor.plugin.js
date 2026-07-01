@@ -143,53 +143,66 @@ module.exports = class Statuseditor {
               { flag: "a" }
             );
 
-            // Test importing require('electron') to bypass sandbox restrictions
-            let electronModule = null;
-            try {
-              electronModule = require("electron");
-            } catch (errEl) {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron require error: ${errEl.message || errEl}\n`, { flag: "a" });
-            }
+            // Allow Electron's main process 100ms to clear the cancelled exit event loop before we re-trigger quit
+            setTimeout(() => {
+              try {
+                // Test importing require('electron') to bypass sandbox restrictions
+                let electronModule = null;
+                try {
+                  electronModule = require("electron");
+                } catch (errEl) {
+                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron require error: ${errEl.message || errEl}\n`, { flag: "a" });
+                }
 
-            if (electronModule) {
-              const elKeys = Object.keys(electronModule).join(", ");
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron keys: ${elKeys}\n`, { flag: "a" });
-              
-              const ipcRenderer = electronModule.ipcRenderer;
-              if (ipcRenderer && typeof ipcRenderer.send === "function") {
-                nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling electron.ipcRenderer.send('DISCORD_QUIT')...\n", { flag: "a" });
-                ipcRenderer.send("DISCORD_QUIT");
-                return;
+                if (electronModule) {
+                  const elKeys = Object.keys(electronModule).join(", ");
+                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron keys: ${elKeys}\n`, { flag: "a" });
+                  
+                  const ipcRenderer = electronModule.ipcRenderer;
+                  if (ipcRenderer && typeof ipcRenderer.send === "function") {
+                    nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling electron.ipcRenderer.send('DISCORD_QUIT')...\n", { flag: "a" });
+                    ipcRenderer.send("DISCORD_QUIT");
+                    return;
+                  }
+                }
+
+                // Try to find Discord's internal Window actions module
+                const WindowActions = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
+                
+                if (WindowActions && typeof WindowActions.quit === "function") {
+                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling WindowActions.quit()...\n", { flag: "a" });
+                  WindowActions.quit();
+                } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
+                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.window.close()...\n", { flag: "a" });
+                  window.DiscordNative.window.close();
+                } else {
+                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling fallback window.close()...\n", { flag: "a" });
+                  window.close();
+                }
+              } catch (innerErr) {
+                try {
+                  nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Inner exit error: ${innerErr.message || innerErr}\n`, { flag: "a" });
+                } catch (e) {}
+                window.close();
               }
-            }
+            }, 100);
 
-            // Try to find Discord's internal Window actions module
-            const WindowActions = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
-            
-            if (WindowActions && typeof WindowActions.quit === "function") {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling WindowActions.quit()...\n", { flag: "a" });
-              WindowActions.quit();
-            } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.window.close()...\n", { flag: "a" });
-              window.DiscordNative.window.close();
-            } else {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling fallback window.close()...\n", { flag: "a" });
-              window.close();
-            }
           } catch (errExit) {
             try {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Exit error: ${errExit.message || errExit}\n`, { flag: "a" });
             } catch (e) {}
             
-            // Final fallback
-            const WindowActionsFallback = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
-            if (WindowActionsFallback && typeof WindowActionsFallback.quit === "function") {
-              WindowActionsFallback.quit();
-            } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
-              window.DiscordNative.window.close();
-            } else {
-              window.close();
-            }
+            // Final fallback after 100ms
+            setTimeout(() => {
+              const WindowActionsFallback = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
+              if (WindowActionsFallback && typeof WindowActionsFallback.quit === "function") {
+                WindowActionsFallback.quit();
+              } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
+                window.DiscordNative.window.close();
+              } else {
+                window.close();
+              }
+            }, 100);
           }
         };
 
