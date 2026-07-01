@@ -128,7 +128,16 @@ module.exports = class Statuseditor {
             // Log properties of DiscordNative for debugging
             const dnKeys = window.DiscordNative ? Object.keys(window.DiscordNative).join(", ") : "null";
             const dnAppKeys = (window.DiscordNative && window.DiscordNative.app) ? Object.keys(window.DiscordNative.app).join(", ") : "null";
-            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `DiscordNative keys: ${dnKeys}\nDiscordNative.app keys: ${dnAppKeys}\n`, { flag: "a" });
+            const dnWinKeys = (window.DiscordNative && window.DiscordNative.window) ? Object.keys(window.DiscordNative.window).join(", ") : "null";
+            const dnIpcKeys = (window.DiscordNative && window.DiscordNative.ipc) ? Object.keys(window.DiscordNative.ipc).join(", ") : "null";
+            
+            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", 
+              `DiscordNative keys: ${dnKeys}\n` +
+              `DiscordNative.app keys: ${dnAppKeys}\n` +
+              `DiscordNative.window keys: ${dnWinKeys}\n` +
+              `DiscordNative.ipc keys: ${dnIpcKeys}\n`, 
+              { flag: "a" }
+            );
 
             if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.quit()...\n", { flag: "a" });
