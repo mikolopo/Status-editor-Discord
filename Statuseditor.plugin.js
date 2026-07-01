@@ -108,8 +108,26 @@ module.exports = class Statuseditor {
     }
 
     // Handle beforeunload to push offline state when Discord or Windows closes
-    this.handleBeforeUnloadBound = () => {
-      this.pushWidgetOfflineSync();
+    this.exitConfirmed = false;
+    this.handleBeforeUnloadBound = (e) => {
+      if (!this.exitConfirmed) {
+        e.preventDefault();
+        e.returnValue = "";
+
+        let resolved = false;
+        const finalizeExit = () => {
+          if (resolved) return;
+          resolved = true;
+          this.exitConfirmed = true;
+          window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
+          window.close();
+        };
+
+        // Safety timeout of 800ms to avoid locking up Discord exit if network fails
+        setTimeout(finalizeExit, 800);
+
+        this.pushWidgetOfflineAsync().then(finalizeExit).catch(finalizeExit);
+      }
     };
     window.addEventListener("beforeunload", this.handleBeforeUnloadBound);
 
@@ -120,9 +138,9 @@ module.exports = class Statuseditor {
   }
 
   async stop() {
-    // Push offline status to the profile widget before shut down
+    // If stopping the plugin manually, try pushing the offline state
     try {
-      this.pushWidgetOfflineSync();
+      await this.pushWidgetOfflineAsync();
     } catch (e) {
       console.warn("Statuseditor: Failed to push offline status during stop", e);
     }
@@ -156,134 +174,99 @@ module.exports = class Statuseditor {
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
   }
 
-  pushWidgetOfflineSync() {
-    if (!this.settings.widgetAppId || !this.settings.widgetBotToken) return;
+  pushWidgetOfflineAsync() {
+    if (!this.settings.widgetAppId || !this.settings.widgetBotToken) return Promise.resolve();
 
-    try {
-      const UserStore = BdApi.Webpack.getStore("UserStore");
-      const userId = UserStore?.getCurrentUser()?.id;
-      if (!userId) return;
-
-      const dynamicFields = [];
-      const varNames = new Set();
-      const presentationTypes = {};
-
-      if (this.settings.widgetSurfaces) {
-        const traverse = (obj) => {
-          if (!obj || typeof obj !== "object") return;
-          if (obj.value_type === "data" && typeof obj.value === "string" && obj.value) {
-            varNames.add(obj.value);
-            if (obj.presentation_type) {
-              presentationTypes[obj.value] = obj.presentation_type;
-            }
-          }
-          for (const k in obj) {
-            if (obj.hasOwnProperty(k)) traverse(obj[k]);
-          }
-        };
-        traverse(this.settings.widgetSurfaces);
-      } else {
-        varNames.add("minutes_since");
-        varNames.add("discord_wasted");
-        presentationTypes["minutes_since"] = "number";
-        presentationTypes["discord_wasted"] = "text";
-      }
-
-      // Resolve variables to static offline strings
-      const resolveOfflineValue = (name) => {
-        if (name === "minutes_since" || name === "minutes_since_formatted") return 0;
-        if (name === "discord_wasted" || name === "discord_wasted_formatted") return 0;
-        if (name === "lol_stats") return "Game Off 💤";
-        if (name === "In_Call") return "No Call";
-        if (name === "Spotify_song") return "Not playing";
-        return "PC Off 🛌";
-      };
-
-      for (const name of varNames) {
-        const presType = presentationTypes[name] || "text";
-        const val = resolveOfflineValue(name);
-
-        if (presType === "number") {
-          dynamicFields.push({ type: 2, name, value: 0 });
-        } else {
-          dynamicFields.push({ type: 1, name, value: String(val) });
-        }
-      }
-
-      const payload = {
-        username: "StatuseditorWidget",
-        data: { dynamic: dynamicFields }
-      };
-
-      const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
-
-      // Try using system curl synchronously if child_process is available.
-      // This spawns a separate OS process which completes the request independently of Electron's lifecycle.
-      if (nativeChildProcess && typeof nativeChildProcess.execSync === "function") {
-        try {
-          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Attempting curl via child_process.execSync...\n", { flag: "w" });
-          
-          const payloadStr = JSON.stringify(payload);
-          // Escape double quotes for cmd.exe compatibility on Windows
-          const escapedPayload = payloadStr.replace(/"/g, '\\"');
-          
-          const cmd = `curl -X PATCH -H "Content-Type: application/json" -H "Authorization: Bot ${this.settings.widgetBotToken}" -d "${escapedPayload}" "${url}"`;
-          
-          // Execute synchronously, hide terminal window, and set timeout
-          const stdout = nativeChildProcess.execSync(cmd, { windowsHide: true, timeout: 2000 });
-          
-          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Curl success! Output: ${stdout.toString().substring(0, 100)}\n`, { flag: "a" });
-          console.log("Statuseditor: Dispatched offline widget update via system curl");
-          return;
-        } catch (errCurl) {
-          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Curl error: ${errCurl.message || errCurl}\nFallback to BdApi.Net.fetch...\n`, { flag: "a" });
-        }
-      }
-
-      // Fallback: Use BdApi.Net.fetch (Node.js backend) to bypass CORS/403 constraints, and write debug logs
-      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via BdApi.Net.fetch (fallback)...\n", { flag: "a" });
-      
-      let completed = false;
-      let resultStatus = 0;
-      let resultText = "";
-
-      BdApi.Net.fetch(url, {
-        method: "PATCH",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bot ${this.settings.widgetBotToken}`, 
-          "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" 
-        },
-        body: JSON.stringify(payload)
-      }).then(async (res) => {
-        resultStatus = res.status;
-        resultText = await res.text();
-        completed = true;
-        try {
-          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch completed! Status: ${resultStatus}\nResponse: ${resultText}\n`, { flag: "a" });
-        } catch(e) {}
-      }).catch((err) => {
-        completed = true;
-        try {
-          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch failed: ${err.message || err}\n`, { flag: "a" });
-        } catch(e) {}
-      });
-
-      // Synchronously block the renderer thread for 1200ms. 
-      // This delays Electron window destruction and gives the main process network stack enough time to complete the HTTP call.
-      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Entering 1200ms synchronous delay block...\n", { flag: "a" });
-      const start = Date.now();
-      while (Date.now() - start < 1200) {
-        // Hard busy wait sleep
-      }
-      
-      console.log("Statuseditor: Dispatched offline widget update via BdApi.Net.fetch");
-    } catch (e) {
-      console.error("Statuseditor: Error pushing offline widget:", e);
+    return new Promise((resolve, reject) => {
       try {
-        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Global error: ${e.message || e}\n`, { flag: "a" });
-      } catch (err) {}
-    }
+        const UserStore = BdApi.Webpack.getStore("UserStore");
+        const userId = UserStore?.getCurrentUser()?.id;
+        if (!userId) return resolve();
+
+        const dynamicFields = [];
+        const varNames = new Set();
+        const presentationTypes = {};
+
+        if (this.settings.widgetSurfaces) {
+          const traverse = (obj) => {
+            if (!obj || typeof obj !== "object") return;
+            if (obj.value_type === "data" && typeof obj.value === "string" && obj.value) {
+              varNames.add(obj.value);
+              if (obj.presentation_type) {
+                presentationTypes[obj.value] = obj.presentation_type;
+              }
+            }
+            for (const k in obj) {
+              if (obj.hasOwnProperty(k)) traverse(obj[k]);
+            }
+          };
+          traverse(this.settings.widgetSurfaces);
+        } else {
+          varNames.add("minutes_since");
+          varNames.add("discord_wasted");
+          presentationTypes["minutes_since"] = "number";
+          presentationTypes["discord_wasted"] = "text";
+        }
+
+        // Resolve variables to static offline strings
+        const resolveOfflineValue = (name) => {
+          if (name === "minutes_since" || name === "minutes_since_formatted") return 0;
+          if (name === "discord_wasted" || name === "discord_wasted_formatted") return 0;
+          if (name === "lol_stats") return "Game Off 💤";
+          if (name === "In_Call") return "No Call";
+          if (name === "Spotify_song") return "Not playing";
+          return "PC Off 🛌";
+        };
+
+        for (const name of varNames) {
+          const presType = presentationTypes[name] || "text";
+          const val = resolveOfflineValue(name);
+
+          if (presType === "number") {
+            dynamicFields.push({ type: 2, name, value: 0 });
+          } else {
+            dynamicFields.push({ type: 1, name, value: String(val) });
+          }
+        }
+
+        const payload = {
+          username: "StatuseditorWidget",
+          data: { dynamic: dynamicFields }
+        };
+
+        const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
+
+        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via BdApi.Net.fetch...\n", { flag: "w" });
+
+        BdApi.Net.fetch(url, {
+          method: "PATCH",
+          headers: { 
+            "Content-Type": "application/json", 
+            "Authorization": `Bot ${this.settings.widgetBotToken}`, 
+            "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" 
+          },
+          body: JSON.stringify(payload)
+        }).then(async (res) => {
+          const text = await res.text();
+          try {
+            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch completed! Status: ${res.status}\nResponse: ${text}\n`, { flag: "a" });
+          } catch(e) {}
+          resolve();
+        }).catch((err) => {
+          try {
+            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch failed: ${err.message || err}\n`, { flag: "a" });
+          } catch(e) {}
+          resolve(); // Resolve anyway to not block exit
+        });
+
+      } catch (e) {
+        console.error("Statuseditor: Error pushing offline widget:", e);
+        try {
+          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Global error: ${e.message || e}\n`, { flag: "a" });
+        } catch (err) {}
+        resolve();
+      }
+    });
   }
 
   handleVoiceChannelSelect() {
