@@ -106,7 +106,14 @@ module.exports = class Statuseditor {
     BdApi.UI.showToast("Status Editor: Activated", { type: "success" });
   }
 
-  stop() {
+  async stop() {
+    // Push offline status to the profile widget before shut down
+    try {
+      await this.pushWidgetOffline();
+    } catch (e) {
+      console.warn("Statuseditor: Failed to push offline status during stop", e);
+    }
+
     this.stopCycle();
     this.stopWidgetSync();
     this.stopCallTracking();
@@ -130,6 +137,81 @@ module.exports = class Statuseditor {
 
     BdApi.Patcher.unpatchAll("Statuseditor");
     BdApi.UI.showToast("Status Editor: Deactivated", { type: "info" });
+  }
+
+  async pushWidgetOffline() {
+    if (!this.settings.widgetAppId || !this.settings.widgetBotToken) return;
+
+    try {
+      const UserStore = BdApi.Webpack.getStore("UserStore");
+      const userId = UserStore?.getCurrentUser()?.id;
+      if (!userId) return;
+
+      const dynamicFields = [];
+      const varNames = new Set();
+      const presentationTypes = {};
+
+      if (this.settings.widgetSurfaces) {
+        const traverse = (obj) => {
+          if (!obj || typeof obj !== "object") return;
+          if (obj.value_type === "data" && typeof obj.value === "string" && obj.value) {
+            varNames.add(obj.value);
+            if (obj.presentation_type) {
+              presentationTypes[obj.value] = obj.presentation_type;
+            }
+          }
+          for (const k in obj) {
+            if (obj.hasOwnProperty(k)) traverse(obj[k]);
+          }
+        };
+        traverse(this.settings.widgetSurfaces);
+      } else {
+        varNames.add("minutes_since");
+        varNames.add("discord_wasted");
+        presentationTypes["minutes_since"] = "number";
+        presentationTypes["discord_wasted"] = "text";
+      }
+
+      // Resolve variables to static offline strings
+      const resolveOfflineValue = (name) => {
+        if (name === "minutes_since" || name === "minutes_since_formatted") return 0;
+        if (name === "discord_wasted" || name === "discord_wasted_formatted") return 0;
+        if (name === "lol_stats") return "Game Off 💤";
+        if (name === "In_Call") return "No Call";
+        if (name === "Spotify_song") return "Not playing";
+        // Custom variables (temperatures, weather, etc)
+        return "PC Off 🛌";
+      };
+
+      for (const name of varNames) {
+        const presType = presentationTypes[name] || "text";
+        const val = resolveOfflineValue(name);
+
+        if (presType === "number") {
+          dynamicFields.push({ type: 2, name, value: 0 });
+        } else {
+          dynamicFields.push({ type: 1, name, value: String(val) });
+        }
+      }
+
+      const payload = {
+        username: "StatuseditorWidget",
+        data: { dynamic: dynamicFields }
+      };
+
+      const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
+      await BdApi.Net.fetch(url, {
+        method: "PATCH",
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bot ${this.settings.widgetBotToken}`, 
+          "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" 
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error("Statuseditor: Error pushing offline widget:", e);
+    }
   }
 
   handleVoiceChannelSelect() {
