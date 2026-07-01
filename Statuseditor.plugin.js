@@ -210,12 +210,15 @@ module.exports = class Statuseditor {
 
       const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
 
-      // Use window.fetch with keepalive: true to ensure the request completes even after the window is destroyed
-      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via window.fetch with keepalive: true...\n", { flag: "w" });
+      // Use BdApi.Net.fetch (Node.js backend) to bypass CORS/403 constraints, and write debug logs
+      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via BdApi.Net.fetch...\n", { flag: "w" });
       
-      window.fetch(url, {
+      let completed = false;
+      let resultStatus = 0;
+      let resultText = "";
+
+      BdApi.Net.fetch(url, {
         method: "PATCH",
-        keepalive: true,
         headers: { 
           "Content-Type": "application/json", 
           "Authorization": `Bot ${this.settings.widgetBotToken}`, 
@@ -223,13 +226,27 @@ module.exports = class Statuseditor {
         },
         body: JSON.stringify(payload)
       }).then(async (res) => {
-        const text = await res.text();
-        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch completed! Status: ${res.status}\nResponse: ${text}\n`, { flag: "a" });
+        resultStatus = res.status;
+        resultText = await res.text();
+        completed = true;
+        try {
+          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch completed! Status: ${resultStatus}\nResponse: ${resultText}\n`, { flag: "a" });
+        } catch(e) {}
       }).catch((err) => {
-        nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch failed: ${err.message || err}\n`, { flag: "a" });
+        completed = true;
+        try {
+          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Fetch failed: ${err.message || err}\n`, { flag: "a" });
+        } catch(e) {}
       });
 
-      console.log("Statuseditor: Dispatched offline widget update with keepalive: true");
+      // Synchronously block the renderer thread for 600ms. 
+      // This delays Electron window destruction and gives the main process network stack enough time to complete the HTTP call.
+      const start = Date.now();
+      while (Date.now() - start < 600) {
+        // Hard busy wait sleep
+      }
+      
+      console.log("Statuseditor: Dispatched offline widget update via BdApi.Net.fetch");
     } catch (e) {
       console.error("Statuseditor: Error pushing offline widget:", e);
       try {
