@@ -125,6 +125,11 @@ module.exports = class Statuseditor {
           try {
             nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Finalizing exit execution...\n", { flag: "a" });
             
+            // Log properties of DiscordNative for debugging
+            const dnKeys = window.DiscordNative ? Object.keys(window.DiscordNative).join(", ") : "null";
+            const dnAppKeys = (window.DiscordNative && window.DiscordNative.app) ? Object.keys(window.DiscordNative.app).join(", ") : "null";
+            nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `DiscordNative keys: ${dnKeys}\nDiscordNative.app keys: ${dnAppKeys}\n`, { flag: "a" });
+
             if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.quit()...\n", { flag: "a" });
               window.DiscordNative.app.quit();
