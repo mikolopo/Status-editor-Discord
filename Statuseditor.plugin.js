@@ -143,6 +143,26 @@ module.exports = class Statuseditor {
               { flag: "a" }
             );
 
+            // Test importing require('electron') to bypass sandbox restrictions
+            let electronModule = null;
+            try {
+              electronModule = require("electron");
+            } catch (errEl) {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron require error: ${errEl.message || errEl}\n`, { flag: "a" });
+            }
+
+            if (electronModule) {
+              const elKeys = Object.keys(electronModule).join(", ");
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Electron keys: ${elKeys}\n`, { flag: "a" });
+              
+              const ipcRenderer = electronModule.ipcRenderer;
+              if (ipcRenderer && typeof ipcRenderer.send === "function") {
+                nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling electron.ipcRenderer.send('DISCORD_QUIT')...\n", { flag: "a" });
+                ipcRenderer.send("DISCORD_QUIT");
+                return;
+              }
+            }
+
             // Try to find Discord's internal Window actions module
             const WindowActions = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
             
