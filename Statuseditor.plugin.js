@@ -46,6 +46,7 @@ module.exports = class Statuseditor {
       widgetSurfaces: null,
       widgetAutoSync: false,
       widgetSyncInterval: 15,
+      widgetSyncOfflineOnExit: true,
       targetDate: "",
       totalCallMinutes: 0,
       customVariables: []
@@ -110,7 +111,7 @@ module.exports = class Statuseditor {
     // Handle beforeunload to push offline state when Discord or Windows closes
     this.exitConfirmed = false;
     this.handleBeforeUnloadBound = (e) => {
-      if (!this.exitConfirmed) {
+      if (this.settings.widgetSyncOfflineOnExit && !this.exitConfirmed) {
         e.preventDefault();
         e.returnValue = "";
 
@@ -138,11 +139,13 @@ module.exports = class Statuseditor {
   }
 
   async stop() {
-    // If stopping the plugin manually, try pushing the offline state
-    try {
-      await this.pushWidgetOfflineAsync();
-    } catch (e) {
-      console.warn("Statuseditor: Failed to push offline status during stop", e);
+    // If stopping the plugin manually, try pushing the offline state (if enabled)
+    if (this.settings.widgetSyncOfflineOnExit) {
+      try {
+        await this.pushWidgetOfflineAsync();
+      } catch (e) {
+        console.warn("Statuseditor: Failed to push offline status during stop", e);
+      }
     }
 
     if (this.handleBeforeUnloadBound) {
@@ -2125,6 +2128,18 @@ module.exports = class Statuseditor {
     wAutoSyncSwitchLabel.appendChild(wAutoSyncSlider); wAutoSyncToggle.appendChild(wAutoSyncSwitchLabel);
     widgetSection.appendChild(wAutoSyncToggle);
 
+    // Sync Offline State on Exit toggle
+    const wOfflineExitToggle = document.createElement("div"); wOfflineExitToggle.classList.add("sc-toggle-container"); wOfflineExitToggle.style.marginTop = "10px";
+    const wOfflineExitLabel = document.createElement("span"); wOfflineExitLabel.classList.add("sc-toggle-label"); wOfflineExitLabel.textContent = "Sync Offline State on Exit";
+    wOfflineExitToggle.appendChild(wOfflineExitLabel);
+    const wOfflineExitSwitchLabel = document.createElement("label"); wOfflineExitSwitchLabel.classList.add("sc-switch");
+    const wOfflineExitCheck = document.createElement("input"); wOfflineExitCheck.type = "checkbox"; wOfflineExitCheck.checked = this.settings.widgetSyncOfflineOnExit;
+    wOfflineExitCheck.onchange = () => { this.settings.widgetSyncOfflineOnExit = wOfflineExitCheck.checked; };
+    wOfflineExitSwitchLabel.appendChild(wOfflineExitCheck);
+    const wOfflineExitSlider = document.createElement("span"); wOfflineExitSlider.classList.add("sc-slider");
+    wOfflineExitSwitchLabel.appendChild(wOfflineExitSlider); wOfflineExitToggle.appendChild(wOfflineExitSwitchLabel);
+    widgetSection.appendChild(wOfflineExitToggle);
+
     const wIntervalGroup = document.createElement("div"); wIntervalGroup.classList.add("sc-form-group");
     wIntervalGroup.innerHTML = `<div class="sc-label-container"><span class="sc-label">Sync Interval (minutes)</span><span class="sc-badge">Min 1</span></div>`;
     const wIntervalInput = document.createElement("input"); wIntervalInput.type = "number"; wIntervalInput.classList.add("sc-input");
@@ -2406,6 +2421,7 @@ module.exports = class Statuseditor {
       wAppInput.value = this.settings.widgetAppId || "";
       wTokenInput.value = this.settings.widgetBotToken || "";
       wAutoSyncCheck.checked = this.settings.widgetAutoSync;
+      wOfflineExitCheck.checked = this.settings.widgetSyncOfflineOnExit;
       wIntervalInput.value = this.settings.widgetSyncInterval.toString();
       wBdInput.value = this.settings.targetDate || "";
       wCallMinDisplay.textContent = (this.settings.totalCallMinutes || 0) + " min";
