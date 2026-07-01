@@ -46,7 +46,7 @@ module.exports = class Statuseditor {
       widgetSurfaces: null,
       widgetAutoSync: false,
       widgetSyncInterval: 15,
-      widgetSyncOfflineOnExit: true,
+      widgetSyncOfflineOnExit: false,
       targetDate: "",
       totalCallMinutes: 0,
       customVariables: []
@@ -121,7 +121,13 @@ module.exports = class Statuseditor {
           resolved = true;
           this.exitConfirmed = true;
           window.removeEventListener("beforeunload", this.handleBeforeUnloadBound);
-          window.close();
+          
+          // Use Discord's native Electron API to quit the application cleanly, preventing orphan background processes
+          if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
+            window.DiscordNative.app.quit();
+          } else {
+            window.close();
+          }
         };
 
         // Safety timeout of 800ms to avoid locking up Discord exit if network fails
@@ -2134,7 +2140,10 @@ module.exports = class Statuseditor {
     wOfflineExitToggle.appendChild(wOfflineExitLabel);
     const wOfflineExitSwitchLabel = document.createElement("label"); wOfflineExitSwitchLabel.classList.add("sc-switch");
     const wOfflineExitCheck = document.createElement("input"); wOfflineExitCheck.type = "checkbox"; wOfflineExitCheck.checked = this.settings.widgetSyncOfflineOnExit;
-    wOfflineExitCheck.onchange = () => { this.settings.widgetSyncOfflineOnExit = wOfflineExitCheck.checked; };
+    wOfflineExitCheck.onchange = () => { 
+      this.settings.widgetSyncOfflineOnExit = wOfflineExitCheck.checked; 
+      this.saveSettings();
+    };
     wOfflineExitSwitchLabel.appendChild(wOfflineExitCheck);
     const wOfflineExitSlider = document.createElement("span"); wOfflineExitSlider.classList.add("sc-slider");
     wOfflineExitSwitchLabel.appendChild(wOfflineExitSlider); wOfflineExitToggle.appendChild(wOfflineExitSwitchLabel);
