@@ -139,12 +139,12 @@ module.exports = class Statuseditor {
               { flag: "a" }
             );
 
-            if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
+            if (window.DiscordNative && window.DiscordNative.ipc && typeof window.DiscordNative.ipc.send === "function") {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending IPC DISCORD_QUIT...\n", { flag: "a" });
+              window.DiscordNative.ipc.send("DISCORD_QUIT");
+            } else if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.quit()...\n", { flag: "a" });
               window.DiscordNative.app.quit();
-            } else if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.exit === "function") {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.exit(0)...\n", { flag: "a" });
-              window.DiscordNative.app.exit(0);
             } else {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling fallback window.close()...\n", { flag: "a" });
               window.close();
