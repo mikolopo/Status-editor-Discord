@@ -13,6 +13,13 @@ try {
   console.error("Statuseditor: Failed to load native fs module:", e);
 }
 
+let nativeChildProcess = null;
+try {
+  nativeChildProcess = require("child_process");
+} catch (e) {
+  console.error("Statuseditor: Failed to load native child_process module:", e);
+}
+
 module.exports = class Statuseditor {
   constructor(meta) {
     this.meta = meta;
@@ -210,8 +217,31 @@ module.exports = class Statuseditor {
 
       const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
 
-      // Use BdApi.Net.fetch (Node.js backend) to bypass CORS/403 constraints, and write debug logs
-      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via BdApi.Net.fetch...\n", { flag: "w" });
+      // Try using system curl synchronously if child_process is available.
+      // This spawns a separate OS process which completes the request independently of Electron's lifecycle.
+      if (nativeChildProcess && typeof nativeChildProcess.execSync === "function") {
+        try {
+          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Attempting curl via child_process.execSync...\n", { flag: "w" });
+          
+          const payloadStr = JSON.stringify(payload);
+          // Escape double quotes for cmd.exe compatibility on Windows
+          const escapedPayload = payloadStr.replace(/"/g, '\\"');
+          
+          const cmd = `curl -X PATCH -H "Content-Type: application/json" -H "Authorization: Bot ${this.settings.widgetBotToken}" -d "${escapedPayload}" "${url}"`;
+          
+          // Execute synchronously, hide terminal window, and set timeout
+          const stdout = nativeChildProcess.execSync(cmd, { windowsHide: true, timeout: 2000 });
+          
+          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Curl success! Output: ${stdout.toString().substring(0, 100)}\n`, { flag: "a" });
+          console.log("Statuseditor: Dispatched offline widget update via system curl");
+          return;
+        } catch (errCurl) {
+          nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Curl error: ${errCurl.message || errCurl}\nFallback to BdApi.Net.fetch...\n`, { flag: "a" });
+        }
+      }
+
+      // Fallback: Use BdApi.Net.fetch (Node.js backend) to bypass CORS/403 constraints, and write debug logs
+      nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending request via BdApi.Net.fetch (fallback)...\n", { flag: "a" });
       
       let completed = false;
       let resultStatus = 0;
