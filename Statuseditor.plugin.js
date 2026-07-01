@@ -130,21 +130,28 @@ module.exports = class Statuseditor {
             const dnAppKeys = (window.DiscordNative && window.DiscordNative.app) ? Object.keys(window.DiscordNative.app).join(", ") : "null";
             const dnWinKeys = (window.DiscordNative && window.DiscordNative.window) ? Object.keys(window.DiscordNative.window).join(", ") : "null";
             const dnIpcKeys = (window.DiscordNative && window.DiscordNative.ipc) ? Object.keys(window.DiscordNative.ipc).join(", ") : "null";
+            const dnProcKeys = (window.DiscordNative && window.DiscordNative.process) ? Object.keys(window.DiscordNative.process).join(", ") : "null";
+            const dnProcUtilsKeys = (window.DiscordNative && window.DiscordNative.processUtils) ? Object.keys(window.DiscordNative.processUtils).join(", ") : "null";
             
             nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", 
               `DiscordNative keys: ${dnKeys}\n` +
               `DiscordNative.app keys: ${dnAppKeys}\n` +
               `DiscordNative.window keys: ${dnWinKeys}\n` +
-              `DiscordNative.ipc keys: ${dnIpcKeys}\n`, 
+              `DiscordNative.ipc keys: ${dnIpcKeys}\n` +
+              `DiscordNative.process keys: ${dnProcKeys}\n` +
+              `DiscordNative.processUtils keys: ${dnProcUtilsKeys}\n`, 
               { flag: "a" }
             );
 
-            if (window.DiscordNative && window.DiscordNative.ipc && typeof window.DiscordNative.ipc.send === "function") {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Sending IPC DISCORD_QUIT...\n", { flag: "a" });
-              window.DiscordNative.ipc.send("DISCORD_QUIT");
-            } else if (window.DiscordNative && window.DiscordNative.app && typeof window.DiscordNative.app.quit === "function") {
-              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.app.quit()...\n", { flag: "a" });
-              window.DiscordNative.app.quit();
+            // Try to find Discord's internal Window actions module
+            const WindowActions = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
+            
+            if (WindowActions && typeof WindowActions.quit === "function") {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling WindowActions.quit()...\n", { flag: "a" });
+              WindowActions.quit();
+            } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
+              nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling window.DiscordNative.window.close()...\n", { flag: "a" });
+              window.DiscordNative.window.close();
             } else {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", "Calling fallback window.close()...\n", { flag: "a" });
               window.close();
@@ -153,7 +160,16 @@ module.exports = class Statuseditor {
             try {
               nativeFs.writeFileSync("C:/Users/mikolopo/AppData/Roaming/BetterDiscord/plugins/statuseditor_debug.txt", `Exit error: ${errExit.message || errExit}\n`, { flag: "a" });
             } catch (e) {}
-            window.close();
+            
+            // Final fallback
+            const WindowActionsFallback = BdApi.Webpack.getModule(m => m && typeof m.quit === "function" && typeof m.minimize === "function" && typeof m.close === "function");
+            if (WindowActionsFallback && typeof WindowActionsFallback.quit === "function") {
+              WindowActionsFallback.quit();
+            } else if (window.DiscordNative && window.DiscordNative.window && typeof window.DiscordNative.window.close === "function") {
+              window.DiscordNative.window.close();
+            } else {
+              window.close();
+            }
           }
         };
 
