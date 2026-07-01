@@ -210,27 +210,15 @@ module.exports = class Statuseditor {
 
       const url = `https://discord.com/api/v9/applications/${this.settings.widgetAppId}/users/${userId}/identities/0/profile`;
 
-      let completed = false;
-      BdApi.Net.fetch(url, {
-        method: "PATCH",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bot ${this.settings.widgetBotToken}`, 
-          "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)" 
-        },
-        body: JSON.stringify(payload)
-      }).then(() => {
-        completed = true;
-      }).catch((e) => {
-        console.error("Statuseditor: Offline push fetch failed:", e);
-        completed = true;
-      });
-
-      // Synchronously block the renderer thread for up to 400ms to allow the IPC/network thread to process the request
-      const start = Date.now();
-      while (!completed && (Date.now() - start < 450)) {
-        // Busy wait
-      }
+      // Use native synchronous XMLHttpRequest to force-block the main process until the request is dispatched
+      const xhr = new XMLHttpRequest();
+      xhr.open("PATCH", url, false); // false = synchronous
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("Authorization", `Bot ${this.settings.widgetBotToken}`);
+      xhr.setRequestHeader("User-Agent", "DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)");
+      xhr.send(JSON.stringify(payload));
+      
+      console.log("Statuseditor: Synced offline widget state during exit, response status:", xhr.status);
     } catch (e) {
       console.error("Statuseditor: Error pushing offline widget:", e);
     }
